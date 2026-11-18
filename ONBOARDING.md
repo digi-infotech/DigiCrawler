@@ -25,9 +25,9 @@ DigiCrawler takes an **Excel list of websites** and gives you back the same list
 | 3    | Your browser opens **http://localhost:3003**. If it doesn't, type that address into your browser yourself.                                                                                                                                          |
 | 4    | **Drop your Excel file** onto the page (or click the big box to browse).                                                                                                                                                                            |
 | 5    | **Check the preview.** The page shows which column it thinks holds the websites, plus the first few addresses. If it picked the wrong column, click the right one.                                                                                  |
-| 6    | Pick the **country** where most of the businesses are. It's only a fallback: each website's own country is detected automatically where possible (see below).                                                                                       |
+| 6    | Pick the **country** where most of the businesses are. It's only a fallback: each website's own country is detected automatically where possible (see below). Leave **Analytics mode** off for a quick contact list, or turn it on for every detail (see below). |
 | 7    | Click **Start checking**. You'll see a live count of emails and numbers, the websites just checked, and the time left. You can close the tab; reopening the page brings you back to the check. Need to stop early? Click **Stop and keep results**. |
-| 8    | On the results screen, **search** or filter the list, **click any email or number to copy it**, or use **Copy emails / Copy mobiles** to copy a whole list. Click **Download Excel** for the full file.                                             |
+| 8    | On the results screen, **search** or filter the list, **click any email or number to copy it**, or use **Copy emails / Copy mobiles** to copy a whole list. Click **Download Excel** to save the file.                                             |
 | 9    | When you're finished for the day, **double-click `stop.bat`**.                                                                                                                                                                                      |
 
 > On a Mac, open Terminal in the folder and run `./start.sh` and `./stop.sh` instead of the `.bat` files.
@@ -47,9 +47,16 @@ On the upload page, click **Download a sample file** for a ready-made template (
 | Acme Plumbing | acmeplumbing.com             | Austin |
 | Beta Dental   | https://www.betadental.co.uk | London |
 
+### Analytics mode: simple list or every detail
+
+The **Analytics mode** switch is on the screen where you check the file, before you click **Start checking**. It is **off every time** you choose a new file. It decides how the websites are checked and what's on the results screen and in the Excel file.
+
+- **Off (the normal setting, quicker):** each website is checked only until a contact turns up. The homepage is read first. If it already shows an email *and* a mobile, nothing else is opened. Otherwise the contact pages are opened, and the about/services pages and the hidden browser are used only while no email or mobile has been found at all. The result is a clean contact list. It only includes businesses where **at least one email or one mobile number** was found. Websites that failed or had nothing are left out. Next to your original columns (for example Business, Website, Type), it adds only `business_name`, `state`, `country`, `email_1`, `email_2`, … and `mobile_1`, `mobile_2`, …. Landline numbers aren't included.
+- **On (slower):** every planned page is opened (up to 6 per website). The result has every row of your file, including failed websites, with all the columns below (`website_final`, `address`, landline `phone_…` numbers, `source_pages` and `status`). Use it to see why a website gave nothing, or to double-check a result. The file is named `<your file>_analytics.xlsx`.
+
 ### What the result columns mean
 
-The result has your original columns plus these:
+With Analytics mode on, the result has your original columns plus these:
 
 | Column           | Meaning                                                                                                                                                                                                                                                                                                     |
 | ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -143,6 +150,7 @@ Options:
 | `--max-pages`              | 6                       | Pages opened per site                                                                          |
 | `--browser / --no-browser` | `WITH_BROWSER` (on)     | Automatic headless-browser fallback                                                            |
 | `--ignore-robots`          | off                     | Skip robots.txt checks                                                                         |
+| `--analytics/--simple`     | `--analytics`           | `--simple` = Analytics mode off: the quicker check and the file with only rows with an email or mobile |
 | `-v`                       | off                     | Verbose logs                                                                                   |
 
 ### Run locally without Docker

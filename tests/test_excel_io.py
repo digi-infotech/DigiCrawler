@@ -85,6 +85,26 @@ def test_at_least_one_column_per_kind(tmp_path):
                       "email_1", "mobile_1", "phone_1", "source_pages", "status")
 
 
+def test_simple_mode_keeps_businesses_with_email_or_mobile(tmp_path):
+    src = make_xlsx(tmp_path / "in.xlsx", [["Business", "Website", "Type"], ["A", "a.in", "Cafe"],
+                                           ["B", "b.in", "Shop"], ["C", "c.in", "Hotel"], ["D", "d.in", "Gym"]])
+    results = [
+        SiteResult("https://a.in", "https://a.in/", business_name="A Cafe", address="1 MG Road", state="Goa",
+                   country="India", emails=["a@a.in"], phones=["+91 832 222 3333"], status="ok"),
+        SiteResult("https://b.in", phones=["+91 22 2345 6789"], status="ok"),        # landline only: dropped
+        SiteResult("https://c.in", status="error: website address not found"),       # failed: dropped
+        SiteResult("https://d.in", business_name="D Gym", mobiles=["+91 98450 43210", "+91 98450 43211"],
+                   phones=["+91 98450 43210", "+91 98450 43211"], status="ok"),
+    ]
+    write_results(tmp_path / "out.xlsx", read_sheet(src), results, analytics=False)
+    rows = list(load_workbook(tmp_path / "out.xlsx").active.iter_rows(values_only=True))
+    assert rows == [
+        ("Business", "Website", "Type", "business_name", "state", "country", "email_1", "mobile_1", "mobile_2"),
+        ("A", "a.in", "Cafe", "A Cafe", "Goa", "India", "a@a.in", None, None),
+        ("D", "d.in", "Gym", "D Gym", None, None, None, "+91 98450 43210", "+91 98450 43211"),
+    ]
+
+
 def test_row_limit_and_empty(tmp_path):
     big = make_xlsx(tmp_path / "big.xlsx", [["Website"]] + [[f"s{i}.com"] for i in range(11)])
     with pytest.raises(InputError, match="limit"):

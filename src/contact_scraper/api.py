@@ -54,6 +54,7 @@ class Job:
     id: str
     filename: str
     total: int
+    analytics: bool = False  # off: quick check, simple file (only rows with an email or mobile)
     status: str = "running"  # running | done | cancelled | error
     done: int = 0
     with_contacts: int = 0
@@ -75,7 +76,8 @@ class Job:
 
     def public(self, since: int | None = None) -> dict:
         data = {
-            "id": self.id, "filename": self.filename, "status": self.status, "done": self.done,
+            "id": self.id, "filename": self.filename, "analytics": self.analytics, "status": self.status,
+            "done": self.done,
             "total": self.total, "with_contacts": self.with_contacts, "errors": self.errors,
             "emails": self.emails, "mobiles": self.mobiles, "phones": self.phones, "error": self.error,
             "elapsed": round((self.finished or time.time()) - self.created, 1),
@@ -194,8 +196,10 @@ async def create_job(
     upload_id: str = Form(""),
     url_column: str = Form(""),
     region: str = Form(""),
+    analytics: bool = Form(False),
 ) -> dict:
     settings = Settings.from_env()
+    settings.analytics = analytics
     region = (region or settings.region).upper()
     if region not in phonenumbers.SUPPORTED_REGIONS:
         raise HTTPException(400, "Please choose a valid country.")
@@ -230,7 +234,7 @@ async def create_job(
     for u, n in zip(urls, names):
         name_of.setdefault(u, n)
 
-    job = Job(id=upload.id, filename=upload.filename, total=len(set(u for u in urls if u)))
+    job = Job(id=upload.id, filename=upload.filename, total=len(set(u for u in urls if u)), analytics=analytics)
     JOBS[job.id] = job
 
     def progress(done: int, _total: int, res: SiteResult) -> None:
@@ -251,7 +255,7 @@ async def create_job(
             except asyncio.CancelledError:
                 results = [job.partial.get(u) or SiteResult(u, status=STOPPED if u else NO_URL) for u in urls]
                 status = "cancelled"
-            await run_in_threadpool(write_results, job.dir / "output.xlsx", sheet, results)
+            await run_in_threadpool(write_results, job.dir / "output.xlsx", sheet, results, analytics)
             job.rows = [summary(r, n) for r, n in zip(results, names)]
             job.status = status
             log.info("Job %s %s: %d/%d sites, %d with contacts", job.id, status, job.done, job.total, job.with_contacts)
@@ -263,7 +267,8 @@ async def create_job(
             job.finished = time.time()
 
     job.task = asyncio.create_task(process())
-    log.info("Job %s started: %s (%d websites, region %s)", job.id, job.filename, job.total, region)
+    log.info("Job %s started: %s (%d websites, region %s, %s)", job.id, job.filename, job.total, region,
+             "analytics" if analytics else "quick")
     return job.public(since=0)
 
 
@@ -297,12 +302,13 @@ async def job_results(job_id: str) -> dict:
 
 @app.get("/api/jobs/{job_id}/download")
 async def download(job_id: str) -> FileResponse:
+    """The job's file: simple (analytics off) or every row and column (analytics on)."""
     job = _get_job(job_id)
     out = job.dir / "output.xlsx"
     if job.status not in ("done", "cancelled") or not out.exists():
         raise HTTPException(409, "Results are not ready yet.")
     return FileResponse(
         out,
-        filename=f"{Path(job.filename).stem}_contacts.xlsx",
+        filename=f"{Path(job.filename).stem}_{'analytics' if job.analytics else 'contacts'}.xlsx",
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )

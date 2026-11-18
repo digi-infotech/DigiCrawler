@@ -19,12 +19,16 @@ def xlsx_bytes(rows) -> bytes:
     return buf.getvalue()
 
 
+SETTINGS_SEEN: list = []
+
+
 @pytest.fixture
 def client(tmp_path, monkeypatch):
     monkeypatch.setattr(api, "JOBS_DIR", tmp_path / "jobs")
     api.JOBS.clear()
 
     async def fake_run(urls, settings, on_progress=None):  # no internet in tests
+        SETTINGS_SEEN.append(settings)
         unique = list(dict.fromkeys(u for u in urls if u))
         results = {}
         for i, u in enumerate(unique, 1):
@@ -40,8 +44,9 @@ def client(tmp_path, monkeypatch):
         yield c
 
 
-def upload(client, content: bytes, name="list.xlsx", region="IN"):
-    return client.post("/api/jobs", files={"file": (name, content)}, data={"region": region})
+def upload(client, content: bytes, name="list.xlsx", region="IN", analytics=True):
+    return client.post("/api/jobs", files={"file": (name, content)},
+                       data={"region": region, "analytics": str(analytics).lower()})
 
 
 def wait_done(client, job_id):
@@ -62,7 +67,7 @@ def test_full_flow(client):
 
     dl = client.get(f"/api/jobs/{job['id']}/download")
     assert dl.status_code == 200
-    assert 'filename="list_contacts.xlsx"' in dl.headers["content-disposition"]
+    assert 'filename="list_analytics.xlsx"' in dl.headers["content-disposition"]
     rows = list(load_workbook(io.BytesIO(dl.content)).active.iter_rows(values_only=True))
     assert rows[0][2:] == ("business_name", "website_final", "address", "state", "country", "email_1", "mobile_1",
                            "phone_1", "source_pages", "status")
@@ -70,6 +75,20 @@ def test_full_flow(client):
     assert rows[2][-1] == "error: website address not found"
     assert rows[3][-1] == "skipped: no valid website address"
     assert rows[4][7] == "info@good-a.in"
+
+
+
+def test_quick_mode_job_gives_the_simple_file(client):
+    """Analytics mode off: a quick check, and only rows with an email or mobile, essential columns only."""
+    content = xlsx_bytes([["Name", "Website"], ["A", "good-a.in"], ["B", "bad-b.in"], ["C", None], ["D", "good-a.in"]])
+    job = wait_done(client, upload(client, content, analytics=False).json()["id"])
+    assert job["analytics"] is False and SETTINGS_SEEN[-1].analytics is False
+    dl = client.get(f"/api/jobs/{job['id']}/download")
+    assert 'filename="list_contacts.xlsx"' in dl.headers["content-disposition"]
+    rows = list(load_workbook(io.BytesIO(dl.content)).active.iter_rows(values_only=True))
+    assert rows == [("Name", "Website", "business_name", "state", "country", "email_1", "mobile_1"),
+                    ("A", "good-a.in", None, None, None, "info@good-a.in", "+91 98450 43210"),
+                    ("D", "good-a.in", None, None, None, "info@good-a.in", "+91 98450 43210")]
 
 
 def test_config(client):

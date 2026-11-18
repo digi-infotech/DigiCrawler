@@ -573,23 +573,27 @@ def find_contact_links(tree: HTMLParser, base_url: str) -> list[str]:
     return [url for url, _ in discover_links(tree, base_url)]
 
 
-def plan_pages(tree: HTMLParser, base_url: str, limit: int) -> list[tuple[str, bool]]:
+def plan_pages(tree: HTMLParser, base_url: str, limit: int,
+               groups: tuple[str, ...] | list[str] = tuple(GROUP_ORDER)) -> list[tuple[str, bool]]:
     """Pick up to `limit` pages to open: contact, about and services first (one of each,
     then the next of each...). Well-known paths like /contact-us are tried directly when
-    the homepage has no matching link. Returns (url, was_guessed)."""
+    the homepage has no matching link. Only the given link `groups` are used.
+    Returns (url, was_guessed)."""
     parsed = urlparse(base_url)
     origin = f"{parsed.scheme}://{parsed.netloc}"
+    order = [g for g in GROUP_ORDER if g in groups]
     buckets: dict[str, list[tuple[str, bool]]] = {g: [] for g in GROUP_ORDER}
     for url, group in discover_links(tree, base_url):
         buckets[group].append((url, False))
     for group, paths in PROBE_PATHS.items():
         if not buckets[group]:
             buckets[group] = [(origin + p, True) for p in paths]
+    buckets = {g: buckets[g] for g in order}
 
     chosen: list[tuple[str, bool]] = []
     seen = {urldefrag(base_url)[0].rstrip("/")}
     while len(chosen) < limit and any(buckets.values()):
-        for group in GROUP_ORDER:
+        for group in order:
             if buckets[group] and len(chosen) < limit:
                 url, guessed = buckets[group].pop(0)
                 if url.rstrip("/") not in seen:

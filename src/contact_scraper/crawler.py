@@ -4,6 +4,10 @@ Plain HTTP first (fast, light). A real headless browser takes over automatically
   * the site refuses plain HTTP (403/401/429, "Access denied", "Checking your browser..."),
   * nothing is found (contacts drawn by JavaScript or loaded on scroll), or
   * contacts were found but some contact pages refused plain HTTP.
+
+Quick mode (`settings.analytics` False) stops as soon as it has what the simple file needs: the
+homepage first, then contact pages only if the homepage lacks an email or a mobile, then about /
+services pages and the browser only while no email or mobile has been found at all.
 """
 from __future__ import annotations
 
@@ -22,6 +26,7 @@ HTTP_BUDGET = 8                # x settings.timeout: time allowed for the plain-
 BROWSER_BUDGET = 12            # x settings.timeout: time allowed for the browser pass (starts once a browser is free)
 BLOCKED_EVEN_IN_BROWSER = "error: website blocked automated visits, even in a browser"
 TOO_SLOW = "error: website took too long to respond"
+QUICK_CONTACT_PAGES = 2        # quick mode: contact pages opened when the homepage isn't enough
 
 
 class _SitePages:
@@ -46,7 +51,26 @@ class _SitePages:
         return tree, text
 
 
-def collect_contacts(result: SiteResult, site: _SitePages, site_url: str, default_region: str) -> SiteResult:
+def _useful(result: SiteResult) -> bool:
+    """Enough for the simple (non-analytics) file: at least one email or mobile."""
+    return bool(result.emails or result.mobiles)
+
+
+Stage = tuple[list[tuple[str, bool]], Callable[[SiteResult], bool]]  # (pages to open, "skip if already ...")
+
+
+def _page_stages(tree: extract.HTMLParser, base_url: str, settings: Settings) -> list[Stage]:
+    """Which pages to open after the homepage, in rounds. Analytics: everything at once."""
+    limit = max(settings.max_pages - 1, 0)
+    if settings.analytics:
+        return [(extract.plan_pages(tree, base_url, limit), lambda r: False)]
+    contact = extract.plan_pages(tree, base_url, min(limit, QUICK_CONTACT_PAGES), ("contact",))
+    others = extract.plan_pages(tree, base_url, max(limit - len(contact), 0), ("about", "services", "other"))
+    return [(contact, lambda r: bool(r.emails and r.mobiles)), (others, _useful)]
+
+
+def collect_contacts(result: SiteResult, site: _SitePages, site_url: str, default_region: str,
+                     with_address: bool = True) -> SiteResult:
     """Pull emails and phone numbers out of all pages, without duplicates."""
     region = extract.detect_region(site_url, [(tree, text) for _, tree, text in site.pages], default_region)
     emails: dict[str, None] = {}
@@ -71,7 +95,7 @@ def collect_contacts(result: SiteResult, site: _SitePages, site_url: str, defaul
     result.business_name = names.business_name(site.pages, site_url)
     pages = [(tree, text) for _, tree, text in site.pages]
     result.state, result.country = address.detect_location(pages)
-    result.address = address.detect_address(pages, result.country)
+    result.address = address.detect_address(pages, result.country) if with_address else ""
     result.status = "pending"
     return result.finish()
 
@@ -110,7 +134,6 @@ async def crawl_site(url: str, fetcher: Fetcher, settings: Settings) -> SiteResu
 # ------------------------------------------------------------------ plain HTTP pass
 
 async def _http_pass(url: str, fetcher: Fetcher, settings: Settings) -> _HttpOutcome:
-    limit = max(settings.max_pages - 1, 0)
 
     # 1) Homepage.
     home: tuple[str, str] | None = None
@@ -135,8 +158,10 @@ async def _http_pass(url: str, fetcher: Fetcher, settings: Settings) -> _HttpOut
     site = _SitePages()
     # Parsing is CPU work; a worker thread keeps other sites downloading meanwhile.
     home_tree, _ = await asyncio.to_thread(site.add, final_url, html)
-    plan = extract.plan_pages(home_tree, final_url, limit)
     sem = asyncio.Semaphore(PAGES_IN_PARALLEL)
+
+    def collect() -> Awaitable[SiteResult]:
+        return asyncio.to_thread(collect_contacts, result, site, final_url, settings.region, settings.analytics)
 
     async def visit(link: str) -> tuple[str, str] | FetchError | None:
         async with sem:
@@ -147,24 +172,29 @@ async def _http_pass(url: str, fetcher: Fetcher, settings: Settings) -> _HttpOut
             except FetchError as exc:
                 return exc
 
-    pages = await asyncio.gather(*(visit(link) for link, _ in plan))
     refused: list[tuple[str, bool]] = []
     missing: set[str] = set()
-    for (link, guessed), page in zip(plan, pages):
-        if isinstance(page, FetchError):
-            if page.blocked:
-                refused.append((link, guessed))
-            elif page.status == 404:
-                missing.add(link)
-        elif page:
-            if extract.looks_blocked(page[1]):
-                refused.append((link, guessed))
-            else:
-                await asyncio.to_thread(site.add, page[0], page[1], guessed)
-    result = await asyncio.to_thread(collect_contacts, result, site, final_url, settings.region)
+    for plan, already_enough in _page_stages(home_tree, final_url, settings):
+        if not settings.analytics:
+            result = await collect()
+            if already_enough(result):
+                break
+        pages = await asyncio.gather(*(visit(link) for link, _ in plan))
+        for (link, guessed), page in zip(plan, pages):
+            if isinstance(page, FetchError):
+                if page.blocked:
+                    refused.append((link, guessed))
+                elif page.status == 404:
+                    missing.add(link)
+            elif page:
+                if extract.looks_blocked(page[1]):
+                    refused.append((link, guessed))
+                else:
+                    await asyncio.to_thread(site.add, page[0], page[1], guessed)
+    result = await collect()
 
     # 3) What the browser should do, if anything.
-    if result.status == "no_contacts":
+    if (result.status == "no_contacts") if settings.analytics else not _useful(result):
         # Nothing found: details may be drawn by JavaScript, loaded on scroll, or on pages that
         # refused plain HTTP. Look at the whole site again the way a visitor sees it.
         async def look_again(session: BrowserSession) -> SiteResult:
@@ -174,7 +204,7 @@ async def _http_pass(url: str, fetcher: Fetcher, settings: Settings) -> _HttpOut
             return await _browser_crawl(SiteResult(url=url), session, fetcher, rendered, settings, skip=missing)
         return _HttpOutcome(result, look_again)
 
-    if refused:
+    if refused and settings.analytics:
         # Contacts found, but some contact pages refused plain HTTP: open just those in the browser.
         async def open_refused(session: BrowserSession) -> SiteResult:
             added = False
@@ -185,7 +215,8 @@ async def _http_pass(url: str, fetcher: Fetcher, settings: Settings) -> _HttpOut
             if not added:
                 return result
             better = dataclasses.replace(result, method="http+browser")
-            return await asyncio.to_thread(collect_contacts, better, site, final_url, settings.region)
+            return await asyncio.to_thread(collect_contacts, better, site, final_url, settings.region,
+                                           settings.analytics)
         return _HttpOutcome(result, open_refused)
 
     return _HttpOutcome(result)
@@ -212,14 +243,21 @@ async def _browser_crawl(result: SiteResult, session: BrowserSession, fetcher: F
     result.final_url = final_url
     site = _SitePages()
     parsed = await asyncio.to_thread(site.add, *rendered)
+
+    def collect() -> Awaitable[SiteResult]:
+        return asyncio.to_thread(collect_contacts, result, site, final_url, settings.region, settings.analytics)
+
     if parsed:
-        for link, guessed in extract.plan_pages(parsed[0], final_url, max(settings.max_pages - 1, 0)):
-            if link in skip or not await fetcher.allowed(link):
-                continue
-            page = await session.render(link)
-            if page:
-                await asyncio.to_thread(site.add, page[0], page[1], guessed)
-    return await asyncio.to_thread(collect_contacts, result, site, final_url, settings.region)
+        for plan, already_enough in _page_stages(parsed[0], final_url, settings):
+            if not settings.analytics and already_enough(await collect()):
+                break
+            for link, guessed in plan:
+                if link in skip or not await fetcher.allowed(link):
+                    continue
+                page = await session.render(link)
+                if page:
+                    await asyncio.to_thread(site.add, page[0], page[1], guessed)
+    return await collect()
 
 
 async def _fetch_home(url: str, fetcher: Fetcher) -> tuple[str, str]:

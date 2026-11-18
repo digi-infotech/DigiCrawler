@@ -276,6 +276,17 @@ h2 { font-size: 22px; font-weight: 650; }
 .check.stopped { background: var(--warn-soft); }
 .check.stopped svg { stroke: var(--warn); }
 @keyframes draw { to { stroke-dashoffset: 0; } }
+.switch { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; font-weight: 600; font-size: 14px;
+          color: var(--ink-2); user-select: none; position: relative; }
+.switch input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.switch .track { flex: none; position: relative; width: 36px; height: 20px; border-radius: 99px; background: var(--line-strong);
+                 transition: background .15s var(--ease); }
+.switch .track::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%;
+                        background: var(--surface); box-shadow: 0 1px 2px rgba(0,0,0,.25); transition: transform .15s var(--ease); }
+.switch input:checked + .track { background: var(--brand); }
+.switch input:checked + .track::after { transform: translateX(16px); }
+.switch input:focus-visible + .track { outline: 2px solid var(--brand); outline-offset: 2px; }
+table.simple .an-only { display: none; }
 .toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 22px 0 12px; }
 .search { position: relative; flex: 1 1 260px; }
 .search input { width: 100%; padding: 10px 12px 10px 38px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface); }
@@ -480,6 +491,14 @@ tbody tr:last-child td { border-bottom: 0; }
             <svg class="i"><use href="#i-chevron"/></svg>
           </div>
           <p class="small muted" style="margin:8px 0 0">Only used when a website doesn't show its own country. Sites ending in .in or .co.uk, or showing an address, are recognised automatically.</p>
+
+          <div class="section-label" style="margin-top:20px">Details</div>
+          <label class="switch">
+            <input type="checkbox" id="analyticsToggle" role="switch" aria-describedby="analyticsHint">
+            <span class="track" aria-hidden="true"></span>
+            <span>Analytics mode</span>
+          </label>
+          <p class="small muted" id="analyticsHint" style="margin:8px 0 0"></p>
         </div>
       </div>
 
@@ -566,8 +585,8 @@ tbody tr:last-child td { border-bottom: 0; }
     </div>
 
     <div class="card table-card">
-      <table>
-        <thead><tr><th>Business</th><th>Emails</th><th>Mobile numbers</th><th>Other phones</th><th>Status</th></tr></thead>
+      <table id="resultsTable">
+        <thead><tr><th>Business</th><th>Emails</th><th>Mobile numbers</th><th class="an-only">Other phones</th><th class="an-only">Status</th></tr></thead>
         <tbody id="rows"></tbody>
       </table>
       <div class="table-foot">
@@ -783,6 +802,7 @@ async function handleFile(file) {
     body.append("file", file);
     const info = await api("/api/uploads", { method: "POST", body });
     state.upload = info;
+    $("analyticsToggle").checked = false; describeMode();  // off by default for every new file
     state.column = info.detected;
     state.showAllCols = false;
     renderReview();
@@ -856,6 +876,7 @@ $("startBtn").addEventListener("click", async () => {
   body.append("upload_id", state.upload.upload_id);
   body.append("url_column", state.upload.columns[state.column].name);
   body.append("region", $("region").value);
+  body.append("analytics", String($("analyticsToggle").checked));
   try {
     const job = await api("/api/jobs", { method: "POST", body });
     store.set("cf-job", job.id);
@@ -1028,24 +1049,43 @@ async function showResults(job) {
     ? `Stopped early — contacts found on ${fmt(job.with_contacts)} of ${plural(job.done, "checked website", "checked websites")}`
     : `Contacts found on ${fmt(job.with_contacts)} of ${plural(job.total, "website", "websites")}`;
   $("doneSub").textContent = stopped
-    ? `${job.filename} · ${fmt(job.done)} of ${fmt(job.total)} checked in ${duration(job.elapsed)}. The rest are marked “Not checked” in the Excel file.`
+    ? `${job.filename} · ${fmt(job.done)} of ${fmt(job.total)} checked in ${duration(job.elapsed)}.` +
+      (job.analytics ? " The rest are marked “Not checked” in the Excel file." : "")
     : `${job.filename} · finished in ${duration(job.elapsed)}`;
-  $("downloadBtn").href = `/api/jobs/${job.id}/download`;
   buildStats($("doneStats"));
   go("results");
   updateStats($("doneStats"), job);
+  state.analytics = Boolean(job.analytics);
+  $("downloadBtn").href = `/api/jobs/${job.id}/download`;
+  $("resultsTable").classList.toggle("simple", !state.analytics);
+  $("tabs").hidden = !state.analytics;
   renderTabs();
   renderRows();
 }
 
+/* Analytics mode is chosen before the check starts, and is off every time (the quicker check).
+   Off: only businesses with an email or a mobile, and only the essential details. */
+function describeMode() {
+  $("analyticsHint").textContent = $("analyticsToggle").checked
+    ? "On: every website and every detail — address, landline numbers, where each contact was found and why a website failed. Opens more pages, so it's slower."
+    : "Off (quicker): stops looking once an email or mobile is found. The file lists only businesses with an email or mobile number: name, state, country, emails and mobiles.";
+}
+$("analyticsToggle").addEventListener("change", describeMode);
+describeMode();
+
+function modeRows() {
+  return state.analytics ? state.rows : state.rows.filter((r) => r.emails.length || r.mobiles.length);
+}
+
 function filtered() {
   const q = state.query.trim().toLowerCase();
-  return state.rows.filter((r) => (state.filter === "all" || r.s.group === state.filter) && (!q || r.hay.includes(q)));
+  const group = state.analytics ? state.filter : "all";
+  return modeRows().filter((r) => (group === "all" || r.s.group === group) && (!q || r.hay.includes(q)));
 }
 
 function renderTabs() {
   const q = state.query.trim().toLowerCase();
-  const base = state.rows.filter((r) => !q || r.hay.includes(q));
+  const base = modeRows().filter((r) => !q || r.hay.includes(q));
   $("tabs").replaceChildren(...FILTERS.map(([key, label]) => {
     const n = key === "all" ? base.length : base.filter((r) => r.s.group === key).length;
     return el("button", { class: "tab", role: "tab", type: "button", "aria-selected": String(state.filter === key),
@@ -1075,10 +1115,12 @@ function renderRows() {
   const list = filtered();
   const tbody = $("rows");
   if (!list.length) {
-    tbody.replaceChildren(el("tr", {}, el("td", { colspan: "5" },
+    tbody.replaceChildren(el("tr", {}, el("td", { colspan: state.analytics ? "5" : "3" },
       el("div", { class: "empty-state" },
-        el("b", { text: state.query ? `Nothing matches “${state.query}”` : "Nothing in this group" }),
-        el("span", { text: state.query ? "Try a different word, or clear the search." : "Pick another tab to see other websites." })))));
+        el("b", { text: state.query ? `Nothing matches “${state.query}”`
+          : state.analytics ? "Nothing in this group" : "No business with an email or mobile number" }),
+        el("span", { text: state.query ? "Try a different word, or clear the search."
+          : state.analytics ? "Pick another tab to see other websites." : "Check the file again with Analytics mode on to see every website and why." })))));
   } else {
     tbody.replaceChildren(...list.slice(0, state.shown).map((r) => {
       const host = hostOf(r.site);
@@ -1090,13 +1132,13 @@ function renderRows() {
             el("div", { style: "min-width:0" },
               el("div", { class: "site-name", text: r.name || host || "(no website)" }),
               safeHref ? el("a", { class: "site-link", href: safeHref, target: "_blank", rel: "noopener noreferrer", text: r.name ? host : r.site }) : null,
-              r.address ? el("div", { class: "found-on", text: r.address })
+              state.analytics && r.address ? el("div", { class: "found-on", text: r.address })
                 : r.state || r.country ? el("div", { class: "found-on", text: [r.state, r.country].filter(Boolean).join(", ") }) : null,
-              r.pages.length ? el("div", { class: "found-on", text: `Found on ${r.pages.map(pathOf).join(", ")}` }) : null))),
+              state.analytics && r.pages.length ? el("div", { class: "found-on", text: `Found on ${r.pages.map(pathOf).join(", ")}` }) : null))),
         el("td", { "data-label": "Emails" }, chipList(r.emails, "email", "email")),
         el("td", { "data-label": "Mobile numbers" }, chipList(r.mobiles, "mobile", "mobile number")),
-        el("td", { "data-label": "Other phones" }, chipList(r.phones, "phone", "phone number")),
-        el("td", { "data-label": "Status" },
+        el("td", { class: "an-only", "data-label": "Other phones" }, chipList(r.phones, "phone", "phone number")),
+        el("td", { class: "an-only", "data-label": "Status" },
           el("div", { class: "pills", style: "justify-content:flex-start" },
             el("span", { class: "pill " + r.s.kind, title: r.s.detail || "", text: r.s.text }),
             r.method && r.method !== "http" ? browserTag(r.method) : null),

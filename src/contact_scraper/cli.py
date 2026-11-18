@@ -29,6 +29,7 @@ def main(
     max_pages: Optional[int] = typer.Option(None, help="Max pages opened per website."),
     browser: Optional[bool] = typer.Option(None, "--browser/--no-browser", help="Use headless browser for JS-heavy sites."),
     ignore_robots: bool = typer.Option(False, "--ignore-robots", help="Don't check robots.txt."),
+    analytics: bool = typer.Option(True, "--analytics/--simple", help="--simple: quicker check that opens extra pages only until an email or mobile is found, and saves only businesses with one (name, state, country, emails, mobiles)."),
     verbose: bool = typer.Option(False, "--verbose", "-v"),
 ) -> None:
     logging.basicConfig(level=logging.INFO if verbose else logging.WARNING, format="%(levelname)s %(message)s")
@@ -45,6 +46,7 @@ def main(
         settings.use_browser = browser
     if ignore_robots:
         settings.respect_robots = False
+    settings.analytics = analytics
 
     output = output or input_file.with_name(f"{input_file.stem}_contacts.xlsx")
 
@@ -63,7 +65,7 @@ def main(
         task = progress.add_task("Checking websites", total=len(set(u for u in urls if u)))
         results = asyncio.run(run(urls, settings, lambda done, total, _r: progress.update(task, completed=done)))
 
-    write_results(output, sheet, results)
+    write_results(output, sheet, results, analytics)
     ok = sum(r.status == "ok" for r in results)
     errors = sum(r.status.startswith("error") for r in results)
     console.print(f"[green]Done.[/green] Contacts found for {ok} of {len(results)} rows ({errors} errors).")

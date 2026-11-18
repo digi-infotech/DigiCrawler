@@ -22,6 +22,9 @@ DOMAIN_LIKE_RE = re.compile(r"^(https?://)?([a-z0-9-]+\.)+[a-z]{2,24}(:\d+)?(/\S
 COLUMNS_BEFORE = ["business_name", "website_final", "address", "state", "country"]
 COLUMNS_AFTER = ["source_pages", "status"]
 SPLIT_KINDS = ("email", "mobile", "phone")
+# Analytics mode off: only what a salesperson needs, and only rows with an email or a mobile.
+SIMPLE_BEFORE = ["business_name", "state", "country"]
+SIMPLE_KINDS = ("email", "mobile")
 MAX_PER_KIND = 50  # a site listing more is a directory, not one business; extra values are dropped
 EXCEL_CELL_LIMIT = 32_000
 
@@ -157,36 +160,40 @@ def _split_values(res: SiteResult) -> dict[str, list[str]]:
     return {"email": res.emails, "mobile": res.mobiles, "phone": res.landlines}
 
 
-def output_columns(results: list[SiteResult]) -> tuple[list[str], dict[str, int]]:
+def has_email_or_mobile(res: SiteResult) -> bool:
+    """Rows kept in the simple (non-analytics) file."""
+    return bool(res.emails or res.mobiles)
+
+
+def output_columns(results: list[SiteResult], analytics: bool = True) -> tuple[list[str], dict[str, int]]:
     """The result column names, and how many numbered columns each kind gets."""
-    counts = {kind: min(MAX_PER_KIND, max([1] + [len(_split_values(r)[kind]) for r in results])) for kind in SPLIT_KINDS}
-    numbered = [f"{kind}_{i}" for kind in SPLIT_KINDS for i in range(1, counts[kind] + 1)]
-    return COLUMNS_BEFORE + numbered + COLUMNS_AFTER, counts
+    kinds = SPLIT_KINDS if analytics else SIMPLE_KINDS
+    counts = {kind: min(MAX_PER_KIND, max([1] + [len(_split_values(r)[kind]) for r in results])) for kind in kinds}
+    numbered = [f"{kind}_{i}" for kind in kinds for i in range(1, counts[kind] + 1)]
+    before, after = (COLUMNS_BEFORE, COLUMNS_AFTER) if analytics else (SIMPLE_BEFORE, [])
+    return before + numbered + after, counts
 
 
-def write_results(path: str | Path, sheet: Sheet, results: list[SiteResult]) -> None:
-    columns, counts = output_columns(results)
+def write_results(path: str | Path, sheet: Sheet, results: list[SiteResult], analytics: bool = True) -> None:
+    """Analytics on: every row and every column. Off: only rows with an email or a mobile, and only
+    the business name, state, country, emails and mobiles next to the original columns."""
+    pairs = list(zip(sheet.rows, results))
+    if not analytics:
+        pairs = [(row, res) for row, res in pairs if has_email_or_mobile(res)]
+    columns, counts = output_columns([res for _, res in pairs], analytics)
     wb = Workbook()
     ws = wb.active
     ws.title = "Contacts"
     ws.append(sheet.headers + columns)
 
-    for row, res in zip(sheet.rows, results):
-        values = _split_values(res)
-        numbered: list[object] = []
-        for kind in SPLIT_KINDS:
-            found = values[kind][:counts[kind]]
-            numbered += found + [None] * (counts[kind] - len(found))
-        ws.append([_safe(v) for v in row] + [
-            _safe(res.business_name or None),
-            _safe(res.final_url or None),
-            _safe(res.address or None),
-            _safe(res.state or None),
-            _safe(res.country or None),
-            *[_safe(v) for v in numbered],
-            _safe(", ".join(res.pages) or None),
-            _safe(res.status),
-        ])
+    for row, res in pairs:
+        values: dict[str, object] = {
+            "business_name": res.business_name, "website_final": res.final_url, "address": res.address,
+            "state": res.state, "country": res.country, "source_pages": ", ".join(res.pages), "status": res.status,
+        }
+        for kind, found in _split_values(res).items():
+            values.update({f"{kind}_{i}": v for i, v in enumerate(found[:counts.get(kind, 0)], start=1)})
+        ws.append([_safe(v) for v in row] + [_safe(values.get(c) or None) for c in columns])
 
     header_font = Font(bold=True)
     new_fill = PatternFill("solid", fgColor="E8F0FE")
@@ -196,7 +203,8 @@ def write_results(path: str | Path, sheet: Sheet, results: list[SiteResult]) -> 
         if cell.column >= first_new:
             cell.fill = new_fill
     ws.freeze_panes = "A2"
-    widths = {"business_name": 32, "website_final": 32, "address": 50, "state": 18, "country": 16, "source_pages": 45, "status": 24}
+    widths = {"business_name": 32, "website_final": 32, "address": 50, "state": 18, "country": 16, "source_pages": 45,
+              "status": 24}
     for i, header in enumerate(sheet.headers + columns, start=1):
         kind = str(header).rsplit("_", 1)[0] if i >= first_new else ""
         width = widths.get(header) if i >= first_new else None

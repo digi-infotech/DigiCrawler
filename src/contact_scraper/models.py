@@ -16,6 +16,9 @@ class Settings:
     timeout: float = 15.0
     respect_robots: bool = True
     use_browser: bool = False
+    # False = quick mode ("Analytics mode" off): open extra pages / the browser only while no email or
+    # mobile has been found, and skip the address. True = check every planned page for every detail.
+    analytics: bool = True
 
     @classmethod
     def from_env(cls) -> "Settings":

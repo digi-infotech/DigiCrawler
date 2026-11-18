@@ -344,3 +344,47 @@ async def test_cloudflare_challenge_on_contact_page_is_skipped(web):
     })
     r = await scrape("https://cf.in")
     assert r.phones == ["+91 98450 43210"]
+
+
+# ----------------------------------------------------------------- quick mode (analytics off)
+
+MENU = '<nav><a href="/contact">Contact</a> <a href="/about">About</a> <a href="/services">Services</a></nav>'
+
+
+async def test_quick_mode_stops_at_homepage_with_email_and_mobile(web):
+    nav = MENU
+    web.site("https://quick.in", {"/": page(nav + "<p>info@quick.in · 98450 43210</p>"),
+                                  "/contact": page("<p>sales@quick.in</p>"), "/about": page("<p>About</p>")})
+    r = await scrape("https://quick.in", analytics=False)
+    assert web.fetched("https://quick.in") == ["/"]
+    assert (r.emails, r.mobiles, r.status) == (["info@quick.in"], ["+91 98450 43210"], "ok")
+
+
+async def test_quick_mode_opens_contact_page_but_not_about(web):
+    nav = MENU
+    web.site("https://quick2.in", {"/": page(nav + "<p>info@quick2.in</p>"),
+                                   "/contact": page("<p>Mobile: 98450 43210</p>"),
+                                   "/about": page("<p>hr@quick2.in</p>"), "/services": page("<p>x</p>")})
+    r = await scrape("https://quick2.in", analytics=False)
+    assert sorted(web.fetched("https://quick2.in")) == ["/", "/contact"]
+    assert (r.emails, r.mobiles) == (["info@quick2.in"], ["+91 98450 43210"])
+    assert r.address == ""  # not worked out in quick mode
+
+
+async def test_quick_mode_falls_back_to_about_pages_when_nothing_found(web):
+    nav = MENU
+    web.site("https://quick3.in", {"/": page(nav), "/contact": page("<p>Use the form below.</p>"),
+                                   "/about": page("<p>Write to hello@quick3.in</p>"), "/services": page("<p>x</p>")})
+    r = await scrape("https://quick3.in", analytics=False)
+    assert {"/about", "/services"} <= set(web.fetched("https://quick3.in"))
+    assert r.emails == ["hello@quick3.in"]
+
+
+async def test_analytics_mode_opens_every_planned_page(web):
+    nav = MENU
+    web.site("https://full.in", {"/": page(nav + "<p>info@full.in · 98450 43210</p>"),
+                                 "/contact": page("<p>sales@full.in</p>"), "/about": page("<p>About</p>"),
+                                 "/services": page("<p>x</p>")})
+    r = await scrape("https://full.in")
+    assert sorted(web.fetched("https://full.in")) == ["/", "/about", "/contact", "/services"]
+    assert r.emails == ["info@full.in", "sales@full.in"]
