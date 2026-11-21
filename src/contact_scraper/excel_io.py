@@ -17,13 +17,13 @@ URL_HEADER_NAMES = {
     "websiteurl", "weburl", "siteurl", "webaddress", "websiteaddress", "link", "companywebsite",
 }
 DOMAIN_LIKE_RE = re.compile(r"^(https?://)?([a-z0-9-]+\.)+[a-z]{2,24}(:\d+)?(/\S*)?$", re.IGNORECASE)
-# Result columns: business_name, website_final, address, state, country, email_1..N, mobile_1..N, phone_1..N,
+# Result columns: business_name, website_final, address, city, state, pin_code, country, email_1..N, mobile_1..N, phone_1..N,
 # source_pages, status. N is the most any row has (at least 1), so a third email anywhere adds email_3.
-COLUMNS_BEFORE = ["business_name", "website_final", "address", "state", "country"]
+COLUMNS_BEFORE = ["business_name", "website_final", "address", "city", "state", "pin_code", "country"]
 COLUMNS_AFTER = ["source_pages", "status"]
 SPLIT_KINDS = ("email", "mobile", "phone")
 # Analytics mode off: only what a salesperson needs, and only rows with an email or a mobile.
-SIMPLE_BEFORE = ["business_name", "state", "country"]
+SIMPLE_BEFORE = ["business_name", "city", "state", "pin_code", "country"]
 SIMPLE_KINDS = ("email", "mobile")
 MAX_PER_KIND = 50  # a site listing more is a directory, not one business; extra values are dropped
 EXCEL_CELL_LIMIT = 32_000
@@ -118,6 +118,14 @@ def label_column(headers: list[str], rows: list[list[object]], url_column: int) 
     return None
 
 
+def _blank(value: object) -> bool:
+    return value is None or (isinstance(value, str) and not value.strip())
+
+
+def _blank_row(row: list[object]) -> bool:
+    return all(_blank(v) for v in row)
+
+
 def load_rows(path: str | Path, max_rows: int | None = None) -> tuple[list[str], list[list[object]]]:
     path = Path(path)
     if path.suffix.lower() == ".xls":
@@ -132,12 +140,17 @@ def load_rows(path: str | Path, max_rows: int | None = None) -> tuple[list[str],
     finally:
         wb.close()
 
-    while all_rows and all(v in (None, "") for v in all_rows[-1]):
-        all_rows.pop()
+    # Clean up: Excel often reports columns and rows that only ever held formatting. Drop rows that are
+    # completely blank, and columns with neither a name nor any value, so they don't reach the output file.
+    all_rows = [r for r in all_rows if not _blank_row(r)]
     if len(all_rows) < 2:
         raise InputError("The file looks empty. Put column names in the first row and one website per row below it.")
-
     width = max(len(r) for r in all_rows)
+    all_rows = [r + [None] * (width - len(r)) for r in all_rows]
+    keep = [i for i in range(width) if any(not _blank(r[i]) for r in all_rows)]
+    all_rows = [[r[i] for i in keep] for r in all_rows]
+
+    width = len(keep)
     headers = [str(h).strip() if h not in (None, "") else f"Column {i + 1}" for i, h in enumerate(all_rows[0] + [None] * (width - len(all_rows[0])))]
     rows = [r + [None] * (width - len(r)) for r in all_rows[1:]]
 
@@ -176,7 +189,7 @@ def output_columns(results: list[SiteResult], analytics: bool = True) -> tuple[l
 
 def write_results(path: str | Path, sheet: Sheet, results: list[SiteResult], analytics: bool = True) -> None:
     """Analytics on: every row and every column. Off: only rows with an email or a mobile, and only
-    the business name, state, country, emails and mobiles next to the original columns."""
+    the business name, city, state, PIN code, country, emails and mobiles next to the original columns."""
     pairs = list(zip(sheet.rows, results))
     if not analytics:
         pairs = [(row, res) for row, res in pairs if has_email_or_mobile(res)]
@@ -189,7 +202,7 @@ def write_results(path: str | Path, sheet: Sheet, results: list[SiteResult], ana
     for row, res in pairs:
         values: dict[str, object] = {
             "business_name": res.business_name, "website_final": res.final_url, "address": res.address,
-            "state": res.state, "country": res.country, "source_pages": ", ".join(res.pages), "status": res.status,
+            "city": res.city, "state": res.state, "pin_code": res.pin_code, "country": res.country, "source_pages": ", ".join(res.pages), "status": res.status,
         }
         for kind, found in _split_values(res).items():
             values.update({f"{kind}_{i}": v for i, v in enumerate(found[:counts.get(kind, 0)], start=1)})
@@ -203,7 +216,7 @@ def write_results(path: str | Path, sheet: Sheet, results: list[SiteResult], ana
         if cell.column >= first_new:
             cell.fill = new_fill
     ws.freeze_panes = "A2"
-    widths = {"business_name": 32, "website_final": 32, "address": 50, "state": 18, "country": 16, "source_pages": 45,
+    widths = {"business_name": 32, "website_final": 32, "address": 50, "city": 18, "state": 18, "pin_code": 12, "country": 16, "source_pages": 45,
               "status": 24}
     for i, header in enumerate(sheet.headers + columns, start=1):
         kind = str(header).rsplit("_", 1)[0] if i >= first_new else ""

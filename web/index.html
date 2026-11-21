@@ -1076,7 +1076,7 @@ async function showResults(job) {
   try {
     const data = await api(`/api/jobs/${job.id}/results`);
     state.rows = data.rows.map((r) => ({ ...r, ...{ s: describeStatus(r.status) },
-      hay: [r.name, r.site, r.address, r.state, r.country, ...r.emails, ...r.mobiles, ...r.phones].join(" ").toLowerCase() }));
+      hay: [r.name, r.site, r.address, r.city, r.state, r.pin_code, r.country, ...r.emails, ...r.mobiles, ...r.phones].join(" ").toLowerCase() }));
   } catch (err) {
     alertBox($("runAlert"), err.message);
     return;
@@ -1113,7 +1113,7 @@ async function showResults(job) {
 function describeMode() {
   $("analyticsHint").textContent = $("analyticsToggle").checked
     ? "On: every website and every detail — address, landline numbers, where each contact was found and why a website failed. Opens more pages, so it's slower."
-    : "Off (quicker): stops looking once an email or mobile is found. The file lists only businesses with an email or mobile number: name, state, country, emails and mobiles.";
+    : "Off (quicker): stops looking once an email or mobile is found. The file lists only businesses with an email or mobile number: name, city, state, PIN code, country, emails and mobiles.";
 }
 $("analyticsToggle").addEventListener("change", describeMode);
 describeMode();
@@ -1178,7 +1178,7 @@ function renderRows() {
               el("div", { class: "site-name", text: r.name || host || "(no website)" }),
               safeHref ? el("a", { class: "site-link", href: safeHref, target: "_blank", rel: "noopener noreferrer", text: r.name ? host : r.site }) : null,
               state.analytics && r.address ? el("div", { class: "found-on", text: r.address })
-                : r.state || r.country ? el("div", { class: "found-on", text: [r.state, r.country].filter(Boolean).join(", ") }) : null,
+                : r.city || r.state || r.country ? el("div", { class: "found-on", text: [r.city, [r.state, r.pin_code].filter(Boolean).join(" "), r.country].filter(Boolean).join(", ") }) : null,
               state.analytics && r.pages.length ? el("div", { class: "found-on", text: `Found on ${r.pages.map(pathOf).join(", ")}` }) : null))),
         el("td", { "data-label": "Emails" }, chipList(r.emails, "email", "email")),
         el("td", { "data-label": "Mobile numbers" }, chipList(r.mobiles, "mobile", "mobile number")),

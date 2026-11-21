@@ -53,7 +53,7 @@ def test_read_and_write_roundtrip(tmp_path):
 
     results = [
         SiteResult("https://acme.com", "https://www.acme.com/", address="12 MG Road, Pune, Maharashtra 411001",
-                   state="Maharashtra", country="India",
+                   city="Pune", state="Maharashtra", pin_code="411001", country="India",
                    emails=["a@acme.com", "b@acme.com"],
                    mobiles=["+91 98450 43210", "+91 98450 43211"],
                    phones=["+91 98450 43210", "+91 98450 43211", "+91 22 2345 6789"],
@@ -66,14 +66,14 @@ def test_read_and_write_roundtrip(tmp_path):
 
     rows = list(load_workbook(out).active.iter_rows(values_only=True))
     # The most emails in any row is 3, so there are 3 email columns; mobiles 2; other phones 1.
-    assert rows[0] == ("Company", "Website", "business_name", "website_final", "address", "state", "country",
-                       "email_1", "email_2", "email_3", "mobile_1", "mobile_2", "phone_1", "source_pages", "status")
-    assert rows[1][4:7] == ("12 MG Road, Pune, Maharashtra 411001", "Maharashtra", "India")
-    assert rows[1][7:10] == ("a@acme.com", "b@acme.com", None)                     # one email per cell
-    assert rows[1][10:12] == ("+91 98450 43210", "+91 98450 43211")
-    assert rows[1][12] == "+91 22 2345 6789"                                       # mobiles not repeated
-    assert rows[2][4] is None and rows[2][7] is None and rows[2][14] == "skipped: no valid website address"
-    assert rows[3][7:10] == ("x@beta.io", "y@beta.io", "z@beta.io")
+    assert rows[0] == ("Company", "Website", "business_name", "website_final", "address", "city", "state",
+                       "pin_code", "country", "email_1", "email_2", "email_3", "mobile_1", "mobile_2", "phone_1", "source_pages", "status")
+    assert rows[1][4:9] == ("12 MG Road, Pune, Maharashtra 411001", "Pune", "Maharashtra", "411001", "India")
+    assert rows[1][9:12] == ("a@acme.com", "b@acme.com", None)                     # one email per cell
+    assert rows[1][12:14] == ("+91 98450 43210", "+91 98450 43211")
+    assert rows[1][14] == "+91 22 2345 6789"                                       # mobiles not repeated
+    assert rows[2][4] is None and rows[2][9] is None and rows[2][16] == "skipped: no valid website address"
+    assert rows[3][9:12] == ("x@beta.io", "y@beta.io", "z@beta.io")
     assert [r[0] for r in rows[1:]] == ["Acme", "Blank", "Beta"]  # row order kept
 
 
@@ -81,7 +81,7 @@ def test_at_least_one_column_per_kind(tmp_path):
     src = make_xlsx(tmp_path / "in.xlsx", [["Website"], ["acme.com"]])
     write_results(tmp_path / "out.xlsx", read_sheet(src), [SiteResult("https://acme.com", status="no_contacts")])
     header = next(load_workbook(tmp_path / "out.xlsx").active.iter_rows(values_only=True))
-    assert header == ("Website", "business_name", "website_final", "address", "state", "country",
+    assert header == ("Website", "business_name", "website_final", "address", "city", "state", "pin_code", "country",
                       "email_1", "mobile_1", "phone_1", "source_pages", "status")
 
 
@@ -89,8 +89,8 @@ def test_simple_mode_keeps_businesses_with_email_or_mobile(tmp_path):
     src = make_xlsx(tmp_path / "in.xlsx", [["Business", "Website", "Type"], ["A", "a.in", "Cafe"],
                                            ["B", "b.in", "Shop"], ["C", "c.in", "Hotel"], ["D", "d.in", "Gym"]])
     results = [
-        SiteResult("https://a.in", "https://a.in/", business_name="A Cafe", address="1 MG Road", state="Goa",
-                   country="India", emails=["a@a.in"], phones=["+91 832 222 3333"], status="ok"),
+        SiteResult("https://a.in", "https://a.in/", business_name="A Cafe", address="1 MG Road", city="Panaji", state="Goa",
+                   pin_code="403001", country="India", emails=["a@a.in"], phones=["+91 832 222 3333"], status="ok"),
         SiteResult("https://b.in", phones=["+91 22 2345 6789"], status="ok"),        # landline only: dropped
         SiteResult("https://c.in", status="error: website address not found"),       # failed: dropped
         SiteResult("https://d.in", business_name="D Gym", mobiles=["+91 98450 43210", "+91 98450 43211"],
@@ -99,9 +99,10 @@ def test_simple_mode_keeps_businesses_with_email_or_mobile(tmp_path):
     write_results(tmp_path / "out.xlsx", read_sheet(src), results, analytics=False)
     rows = list(load_workbook(tmp_path / "out.xlsx").active.iter_rows(values_only=True))
     assert rows == [
-        ("Business", "Website", "Type", "business_name", "state", "country", "email_1", "mobile_1", "mobile_2"),
-        ("A", "a.in", "Cafe", "A Cafe", "Goa", "India", "a@a.in", None, None),
-        ("D", "d.in", "Gym", "D Gym", None, None, None, "+91 98450 43210", "+91 98450 43211"),
+        ("Business", "Website", "Type", "business_name", "city", "state", "pin_code", "country", "email_1", "mobile_1",
+         "mobile_2"),
+        ("A", "a.in", "Cafe", "A Cafe", "Panaji", "Goa", "403001", "India", "a@a.in", None, None),
+        ("D", "d.in", "Gym", "D Gym", None, None, None, None, None, "+91 98450 43210", "+91 98450 43211"),
     ]
 
 
@@ -146,3 +147,18 @@ def test_detects_website_column_among_many(tmp_path):
     ])
     sheet = read_sheet(src)
     assert sheet.headers[sheet.url_column] == "Web Address"
+
+
+def test_empty_columns_and_rows_are_cleaned_out(tmp_path):
+    """Columns with no name and no values (often left by Excel formatting) and blank rows are dropped;
+    a named column stays even when it's empty."""
+    src = make_xlsx(tmp_path / "in.xlsx", [
+        ["website", None, "Notes", None, "  "],
+        ["acme.com", None, None, None, None],
+        [None, None, None, None, " "],
+        ["beta.io", None, None, None, None],
+    ])
+    sheet = read_sheet(src)
+    assert sheet.headers == ["website", "Notes"]
+    assert sheet.rows == [["acme.com", None], ["beta.io", None]]
+    assert sheet.urls == ["https://acme.com", "https://beta.io"]

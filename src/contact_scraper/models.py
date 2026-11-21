@@ -42,7 +42,9 @@ class SiteResult:
     final_url: str = ""
     business_name: str = ""  # from the website itself (schema.org, title, logo, footer...)
     address: str = ""  # the site's postal address as one line of text; blank when none is found
+    city: str = ""     # town from the site's postal address
     state: str = ""    # from the site's postal address only; blank when no address is found
+    pin_code: str = "" # PIN / ZIP / postcode from the same address
     country: str = ""  # English country name, e.g. "India"
     emails: list[str] = field(default_factory=list)
     mobiles: list[str] = field(default_factory=list)  # subset of phones

@@ -94,7 +94,8 @@ def collect_contacts(result: SiteResult, site: _SitePages, site_url: str, defaul
     result.region = region
     result.business_name = names.business_name(site.pages, site_url)
     pages = [(tree, text) for _, tree, text in site.pages]
-    result.state, result.country = address.detect_location(pages)
+    place = address.detect_place(pages)
+    result.state, result.country, result.city, result.pin_code = place.state, place.country, place.city, place.postcode
     result.address = address.detect_address(pages, result.country) if with_address else ""
     result.status = "pending"
     return result.finish()

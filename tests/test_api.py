@@ -73,12 +73,12 @@ def test_full_flow(client):
     assert dl.status_code == 200
     assert 'filename="list_analytics.xlsx"' in dl.headers["content-disposition"]
     rows = list(load_workbook(io.BytesIO(dl.content)).active.iter_rows(values_only=True))
-    assert rows[0][2:] == ("business_name", "website_final", "address", "state", "country", "email_1", "mobile_1",
-                           "phone_1", "source_pages", "status")
-    assert rows[1][7:10] == ("info@good-a.in", "+91 98450 43210", "+91 22 2345 6789")  # one value per cell
+    assert rows[0][2:] == ("business_name", "website_final", "address", "city", "state", "pin_code", "country",
+                           "email_1", "mobile_1", "phone_1", "source_pages", "status")
+    assert rows[1][9:12] == ("info@good-a.in", "+91 98450 43210", "+91 22 2345 6789")  # one value per cell
     assert rows[2][-1] == "error: website address not found"
     assert rows[3][-1] == "skipped: no valid website address"
-    assert rows[4][7] == "info@good-a.in"
+    assert rows[4][9] == "info@good-a.in"
 
 
 
@@ -90,9 +90,9 @@ def test_quick_mode_job_gives_the_simple_file(client):
     dl = client.get(f"/api/jobs/{job['id']}/download")
     assert 'filename="list_contacts.xlsx"' in dl.headers["content-disposition"]
     rows = list(load_workbook(io.BytesIO(dl.content)).active.iter_rows(values_only=True))
-    assert rows == [("Name", "Website", "business_name", "state", "country", "email_1", "mobile_1"),
-                    ("A", "good-a.in", None, None, None, "info@good-a.in", "+91 98450 43210"),
-                    ("D", "good-a.in", None, None, None, "info@good-a.in", "+91 98450 43210")]
+    assert rows == [("Name", "Website", "business_name", "city", "state", "pin_code", "country", "email_1", "mobile_1"),
+                    ("A", "good-a.in", None, None, None, None, None, "info@good-a.in", "+91 98450 43210"),
+                    ("D", "good-a.in", None, None, None, None, None, "info@good-a.in", "+91 98450 43210")]
 
 
 def test_config(client):

@@ -65,6 +65,41 @@ def test_most_mentioned_address_wins():
     assert address.detect_location([(t, extract.visible_text(t)) for t in pages]) == ("Maharashtra", "India")
 
 
+@pytest.mark.parametrize("html,expected", [
+    # a state written after a town, with no postcode or country: the country comes from the state
+    ("<footer><p>2nd Floor, FC Road, Pune, Maharashtra</p></footer>", ("Maharashtra", "India")),
+    ("<footer><p>Jaipur, Rajasthan</p></footer>", ("Rajasthan", "India")),
+    ("<p>Visit our store in Austin, Texas.</p>", ("Texas", "United States")),
+    ("<p>We serve Texas, Ohio and California.</p>", ("", "")),          # a list of states, not a town
+    ('<script type="application/ld+json">{"address": {"addressRegion": "Kerala"}}</script>', ("Kerala", "India")),
+])
+def test_state_without_postcode_or_country(html, expected):
+    assert location(html) == expected
+
+
+@pytest.mark.parametrize("html,expected", [
+    ("<footer><p>12 MG Road,<br>Pune, Maharashtra 411001<br>India</p></footer>", ("Pune", "411001")),
+    ("<p>Connaught Place, New Delhi 110001</p>", ("New Delhi", "110001")),
+    ("<p>Anna Salai, Chennai - 600 002, Tamilnadu</p>", ("Chennai", "600002")),
+    ("<p>Shop 4, Linking Road, Mumbai-400050, Maharashtra</p>", ("Mumbai", "400050")),
+    ("<p>HQ: Bandra, Mumbai, Maharashtra 400050</p>", ("Mumbai", "400050")),
+    ("<p>Panaji, Goa, India</p>", ("Panaji", "")),
+    ("<footer><p>Jaipur, Rajasthan</p></footer>", ("Jaipur", "")),
+    ("<address>350 5th Ave<br>New York, NY 10118</address>", ("New York", "10118")),
+    ("<p>100 Congress Ave, Austin, Texas 78701-4042</p>", ("Austin", "78701-4042")),
+    ("<p>290 Bremner Blvd, Toronto, ON M5V3L9</p>", ("Toronto", "M5V 3L9")),
+    ("<p>1 Macquarie St, Sydney NSW 2000</p>", ("Sydney", "2000")),
+    ("<p>221B Baker Street, London NW1 6XE</p>", ("London", "NW1 6XE")),
+    ('<script type="application/ld+json">{"address": {"addressLocality": "Kochi", "addressRegion": "Kerala", '
+     '"postalCode": "682001"}}</script>', ("Kochi", "682001")),
+    ("<p>Call 022-400050 now</p>", ("", "")),
+])
+def test_city_and_pin_code(html, expected):
+    tree = extract.parse(html)
+    place = address.detect_place([(tree, extract.visible_text(tree))])
+    assert (place.city, place.postcode) == expected
+
+
 def test_schema_country_beats_a_stray_written_postcode():
     html = ('<script type="application/ld+json">{"address": {"addressRegion": "Gujarat", "addressCountry": "India"}}'
             '</script><p>Our London partner: 1 Fleet St, London EC4Y 1AA</p>')

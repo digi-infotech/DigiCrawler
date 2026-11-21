@@ -97,7 +97,7 @@ async def test_state_and_country_from_contact_page_address(web):
                          "<p>Mobile: 98450 43210</p>"),
     })
     r = await scrape("https://addr.in")
-    assert (r.state, r.country) == ("Maharashtra", "India")
+    assert (r.city, r.state, r.pin_code, r.country) == ("Pune", "Maharashtra", "411045", "India")
     assert r.phones == ["+91 98450 43210"]  # the toll-free number is left out
 
 

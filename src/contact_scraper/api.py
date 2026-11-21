@@ -148,8 +148,8 @@ def summary(res: SiteResult, name: str = "") -> dict:
     """One result row as the page shows it."""
     return {
         "name": name or res.business_name, "url": res.url, "site": res.final_url or res.url, "emails": res.emails,
-        "mobiles": res.mobiles, "phones": res.landlines, "address": res.address, "state": res.state,
-        "country": res.country,
+        "mobiles": res.mobiles, "phones": res.landlines, "address": res.address, "city": res.city, "state": res.state,
+        "pin_code": res.pin_code, "country": res.country,
         "pages": res.pages, "status": res.status, "method": res.method,
     }
 

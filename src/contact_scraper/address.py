@@ -12,6 +12,7 @@ import json
 import re
 from collections import Counter
 from collections.abc import Iterable
+from typing import NamedTuple
 
 import phonenumbers
 from bs4 import BeautifulSoup
@@ -81,6 +82,7 @@ WALES_AREAS = set("CF LD LL NP SA".split())
 
 STRUCTURED = 5   # schema.org data: the site states it explicitly
 WRITTEN = 3      # an address pattern in the visible text
+STATE_ONLY = 2   # "City, State" written without a postcode or country
 
 
 def _key(name: str) -> str:
@@ -100,19 +102,31 @@ def _names_re(names: Iterable[str]) -> str:
 _US_ABBR = "|".join(US_STATES)
 _US_NAMES = _names_re(US_STATES.values())
 _ZIP = r"\d{5}(?:-\d{4})?(?![\d-])"
-US_ABBR_ZIP_RE = re.compile(r"[A-Za-z.]{2,},?\s+(%s)\.?,?\s+%s" % (_US_ABBR, _ZIP))           # "Austin, TX 78701"
-US_NAME_ZIP_RE = re.compile(r"\b(%s),?\s+%s" % (_US_NAMES, _ZIP))                             # "Austin, Texas 78701"
+US_ABBR_ZIP_RE = re.compile(r"[A-Za-z.]{2,},?\s+(%s)\.?,?\s+(%s)" % (_US_ABBR, _ZIP))         # "Austin, TX 78701"
+US_NAME_ZIP_RE = re.compile(r"\b(%s),?\s+(%s)" % (_US_NAMES, _ZIP))                           # "Austin, Texas 78701"
 _CA_POSTAL = r"[A-Z]\d[A-Z]\s?\d[A-Z]\d\b"
-CA_ABBR_RE = re.compile(r"[A-Za-z.]{2,},?\s+(%s)\.?,?\s+%s" % ("|".join(CA_PROVINCES), _CA_POSTAL))
-CA_NAME_RE = re.compile(r"\b(%s),?\s+%s" % (_names_re(CA_PROVINCES.values()), _CA_POSTAL))
-AU_ABBR_RE = re.compile(r"[A-Za-z.]{2,},?\s+(%s),?\s+\d{4}(?!\d)" % "|".join(AU_STATES))       # "Sydney NSW 2000"
+CA_ABBR_RE = re.compile(r"[A-Za-z.]{2,},?\s+(%s)\.?,?\s+(%s)" % ("|".join(CA_PROVINCES), _CA_POSTAL))
+CA_NAME_RE = re.compile(r"\b(%s),?\s+(%s)" % (_names_re(CA_PROVINCES.values()), _CA_POSTAL))
+AU_ABBR_RE = re.compile(r"[A-Za-z.]{2,},?\s+(%s),?\s+(\d{4})(?!\d)" % "|".join(AU_STATES))     # "Sydney NSW 2000"
 UK_POSTCODE_RE = re.compile(r"\b([A-Z]{1,2})\d[A-Z\d]?\s\d[A-Z]{2}\b")
-IN_PIN_RE = re.compile(r"(?<![\d-])[1-9]\d{2}\s?\d{3}(?![\d-])")
+IN_PIN_RE = re.compile(r"(?<!\d)(?<!\d-)[1-9]\d{2}\s?\d{3}(?![\d-])")  # "Mumbai-400050", not "022-400050"
 _IN_ALL = list(IN_STATES) + list(IN_ALIASES)
 IN_STATE_RE = re.compile(r"\b(%s)\b" % _names_re(_IN_ALL), re.IGNORECASE)
-IN_STATE_THEN_INDIA_RE = re.compile(r"\b(%s)\b[\s,.-]*(?:[1-9]\d{2}\s?\d{3}[\s,.-]*)?India\b" % _names_re(_IN_ALL),
+IN_STATE_THEN_INDIA_RE = re.compile(r"\b(%s)\b[\s,.-]*(?:([1-9]\d{2}\s?\d{3})[\s,.-]*)?India\b" % _names_re(_IN_ALL),
                                     re.IGNORECASE)
 INDIA_RE = re.compile(r"\bIndia\b", re.IGNORECASE)
+
+# "City, State" with no postcode or country next to it ("Pune, Maharashtra", "Austin, Texas"). The state's
+# full name must be written with capitals and follow a capitalised place name and a comma; the country
+# comes from the state. Weaker than an address with a postcode (see STATE_ONLY).
+_CITY = r"[A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){0,2}"
+_STATE_ONLY_NAMES = (list(US_STATES.values()) + list(CA_PROVINCES.values()) + list(AU_STATES.values())
+                     + [s for s in _IN_ALL if s not in ("New Delhi", "NCT of Delhi")])
+CITY_STATE_RE = re.compile(r"\b(%s),\s*(%s)\b(?![ \t]*\d)" % (_CITY, _names_re(_STATE_ONLY_NAMES)))
+# Places that are their own state: the city is the name written ("Connaught Place, New Delhi 110001").
+IN_CITY_STATES = {"delhi": "New Delhi", "newdelhi": "New Delhi", "nctofdelhi": "New Delhi",
+                  "chandigarh": "Chandigarh", "puducherry": "Puducherry", "pondicherry": "Puducherry"}
+_SEGMENT_SPLIT_RE = re.compile(r"\s*(?:[,\n|;:•·–—]|\s-\s|\s-(?=\d)|(?<=\D)-\s)\s*")
 
 # Country names (and a few common short forms) -> ISO code, for schema.org "addressCountry".
 COUNTRY_ALIASES = {"usa": "US", "u.s.a.": "US", "u.s.": "US", "united states of america": "US", "america": "US",
@@ -192,28 +206,101 @@ def _uk_nation(area: str) -> str:
     return "England"
 
 
-Clue = tuple[str, str, int]  # (state, country code, weight); either part may be ""
+class Clue(NamedTuple):
+    """One sign of where the business is. Any text part may be ''."""
+    state: str
+    code: str      # ISO country code
+    weight: int
+    city: str = ""
+    postcode: str = ""
 
 
-Match = tuple[str, str, int, int]  # (state, country code, start, end) of an address pattern in the text
+class Match(NamedTuple):
+    """An address pattern written in the text, and where it is."""
+    state: str
+    code: str
+    start: int
+    end: int
+    city: str = ""
+    postcode: str = ""
+    weight: int = WRITTEN
+
+
+class Location(NamedTuple):
+    state: str = ""
+    country: str = ""   # English name, e.g. "India"
+    city: str = ""
+    postcode: str = ""  # PIN / ZIP / postcode, as the site writes it
+
+
+def _is_region(segment: str) -> bool:
+    """A state, province or country name or code ("Maharashtra", "TX", "NSW", "India")."""
+    if _india_state(segment) or country_code(segment):
+        return True
+    if segment.isupper() and len(segment) <= 3 and any(segment in r for r in REGIONS_BY_COUNTRY.values()):
+        return True
+    return any(_key(name) == _key(segment) for regions in REGIONS_BY_COUNTRY.values() for name in regions.values())
+
+
+def _town(segment: str) -> str:
+    """The town name ending a piece of text ('Located in Austin' -> 'Austin'), or '' when it isn't one."""
+    words = segment.split()
+    if words and any(not w[0].isupper() for w in words):  # keep the capitalised words at the end
+        tail: list[str] = []
+        for word in reversed(words):
+            if not word[0].isupper():
+                break
+            tail.insert(0, word)
+        segment, words = " ".join(tail), tail
+    ok = (2 <= len(segment) <= 40 and 0 < len(words) <= 4
+          and not any(c.isdigit() or c in "@/()" for c in segment)
+          and not _STREET_WORD_RE.search(segment) and not _TAIL_LABEL_RE.search(segment)
+          and not LABEL_LINE_RE.match(segment) and not country_code(segment))
+    return segment if ok else ""
+
+
+def _city_before(text: str, pos: int, skip_states: bool = False) -> str:
+    """The town written just before `pos` (a state or postcode): 'Austin' in '100 Congress Ave, Austin, TX 78701'.
+    With `skip_states` (Indian PINs), a state name in between is skipped: 'Pune, Maharashtra 411001'."""
+    lead = text[max(0, pos - 150):pos]
+    for segment in reversed(_SEGMENT_SPLIT_RE.split(lead)):
+        segment = segment.strip(" .-")
+        if not segment:
+            continue
+        if skip_states and (_india_state(segment) or country_code(segment)):
+            if _key(segment) in IN_CITY_STATES:  # "Connaught Place, New Delhi 110001"
+                return IN_CITY_STATES[_key(segment)]
+            continue
+        return _town(segment)
+    return ""
+
+
+def _pin(value: str) -> str:
+    return re.sub(r"\s+", "", value)
 
 
 def _written(text: str) -> list[Match]:
     """Address patterns written on the page, with where they are."""
     found: list[Match] = []
+
+    def add(state: str, code: str, m: re.Match, state_group: int = 1, zip_group: int | None = 2,
+            postcode: str | None = None) -> None:
+        zip_code = postcode if postcode is not None else (m.group(zip_group) if zip_group else "")
+        found.append(Match(state, code, m.start(), m.end(), _city_before(text, m.start(state_group)), zip_code))
+
     for m in US_ABBR_ZIP_RE.finditer(text):
-        found.append((US_STATES[m.group(1)], "US", m.start(), m.end()))
+        add(US_STATES[m.group(1)], "US", m)
     for m in US_NAME_ZIP_RE.finditer(text):
-        found.append((_full_state(m.group(1), "US")[0], "US", m.start(), m.end()))
+        add(_full_state(m.group(1), "US")[0], "US", m)
     for m in CA_ABBR_RE.finditer(text):
-        found.append((CA_PROVINCES[m.group(1)], "CA", m.start(), m.end()))
+        add(CA_PROVINCES[m.group(1)], "CA", m, postcode=re.sub(r"^(\w{3})\s?(\w{3})$", r"\1 \2", m.group(2)))
     for m in CA_NAME_RE.finditer(text):
-        found.append((_full_state(m.group(1), "CA")[0], "CA", m.start(), m.end()))
+        add(_full_state(m.group(1), "CA")[0], "CA", m, postcode=re.sub(r"^(\w{3})\s?(\w{3})$", r"\1 \2", m.group(2)))
     for m in AU_ABBR_RE.finditer(text):
-        found.append((AU_STATES[m.group(1)], "AU", m.start(), m.end()))
+        add(AU_STATES[m.group(1)], "AU", m)
     for m in UK_POSTCODE_RE.finditer(text):
         if m.group(1) in UK_AREAS:
-            found.append((_uk_nation(m.group(1)), "GB", m.start(), m.end()))
+            add(_uk_nation(m.group(1)), "GB", m, state_group=0, postcode=m.group(0))
 
     # India: a 6-digit PIN with a state name close by (the nearest one wins), or "<State>, India".
     india_spans: list[tuple[int, int]] = []
@@ -221,44 +308,62 @@ def _written(text: str) -> list[Match]:
         start, end = max(0, m.start() - 100), min(len(text), m.end() + 40)
         window = text[start:end]
         states = [(abs(start + s.start() - m.start()), _india_state(s.group(1))) for s in IN_STATE_RE.finditer(window)]
-        if states:
-            found.append((min(states)[1], "IN", m.start(), m.end()))
-            india_spans.append((start, end))
-        elif INDIA_RE.search(window):
-            found.append(("", "IN", m.start(), m.end()))
+        if states or INDIA_RE.search(window):
+            state = min(states)[1] if states else ""
+            city = _city_before(text, m.start(), skip_states=True) or IN_CITY_STATES.get(_key(state), "")
+            found.append(Match(state, "IN", m.start(), m.end(), city, _pin(m.group())))
             india_spans.append((start, end))
     for m in IN_STATE_THEN_INDIA_RE.finditer(text):
         if not any(s <= m.start() < e for s, e in india_spans):  # not already counted with its PIN
-            found.append((_india_state(m.group(1)), "IN", m.start(), m.end()))
+            state = _india_state(m.group(1))
+            city = _city_before(text, m.start(1)) or IN_CITY_STATES.get(_key(state), "")
+            found.append(Match(state, "IN", m.start(), m.end(), city, _pin(m.group(2) or "")))
+
+    # "City, State" with no postcode: only where nothing above already matched.
+    taken = india_spans + [(f.start, f.end) for f in found]
+    for m in CITY_STATE_RE.finditer(text):
+        if any(s <= m.start(2) < e for s, e in taken):
+            continue
+        city = _city_before(text, m.start(2))
+        if not city or _is_region(city):  # "We serve Texas, Ohio": the part before the state is not a town
+            continue
+        state, code = _full_state(m.group(2), "")
+        if code:
+            found.append(Match(state, code, m.start(), m.end(), city, "", STATE_ONLY))
     return found
 
 
 def clues_from_text(text: str) -> list[Clue]:
     """Address patterns written on the page."""
-    return [(state, code, WRITTEN) for state, code, _, _ in _written(text)]
+    return [Clue(m.state, m.code, m.weight, m.city, m.postcode) for m in _written(text)]
 
 
 def clues_from_schema(tree: BeautifulSoup) -> list[Clue]:
     """schema.org PostalAddress in JSON-LD, or microdata on the page."""
     found: list[Clue] = []
 
-    def add(region: object, country: object) -> None:
-        if isinstance(country, dict):
-            country = country.get("name") or country.get("@id") or ""
-        if isinstance(region, dict):
-            region = region.get("name") or ""
-        code = country_code(str(country or ""))
-        state, code = _full_state(str(region or ""), code)
-        if state or code:
-            found.append((state, code, STRUCTURED))
+    def plain(value: object) -> str:
+        if isinstance(value, dict):
+            value = value.get("name") or value.get("@id") or ""
+        if isinstance(value, list):
+            value = next((v for v in value if isinstance(v, str)), "")
+        return re.sub(r"\s+", " ", str(value or "")).strip(" ,.")
+
+    def add(region: object, country: object, city: object = "", postcode: object = "") -> None:
+        code = country_code(plain(country))
+        state, code = _full_state(plain(region), code)
+        city, postcode = plain(city)[:60], plain(postcode)[:20]
+        if state or code or city or postcode:
+            found.append(Clue(state, code, STRUCTURED, city, postcode))
 
     def walk(obj: object) -> None:
         if isinstance(obj, dict):
             keys = {str(k).lower(): v for k, v in obj.items()}
-            if "addressregion" in keys or "addresscountry" in keys:
-                add(keys.get("addressregion"), keys.get("addresscountry"))
+            if any(k in keys for k in ("addressregion", "addresscountry", "addresslocality", "postalcode")):
+                add(keys.get("addressregion"), keys.get("addresscountry"), keys.get("addresslocality"),
+                    keys.get("postalcode"))
             if isinstance(keys.get("address"), str):  # "address": "350 5th Ave, New York, NY 10118"
-                found.extend((s, c, STRUCTURED) for s, c, _ in clues_from_text(keys["address"]))
+                found.extend(c._replace(weight=STRUCTURED) for c in clues_from_text(keys["address"]))
             for value in obj.values():
                 walk(value)
         elif isinstance(obj, list):
@@ -276,29 +381,42 @@ def clues_from_schema(tree: BeautifulSoup) -> list[Clue]:
         return (el.get("content") or el.get_text(" ", strip=True)) if el else ""
 
     for node in tree.find_all(attrs={"itemtype": re.compile(r"PostalAddress", re.IGNORECASE)}):
-        add(prop(node, "addressRegion"), prop(node, "addressCountry"))
+        add(prop(node, "addressRegion"), prop(node, "addressCountry"), prop(node, "addressLocality"),
+            prop(node, "postalCode"))
     return found
 
 
-def detect_location(pages: Iterable[tuple[BeautifulSoup, str]]) -> tuple[str, str]:
-    """(state, country name) from the address on a site's pages; blanks when there is none."""
+def _vote(values: Iterable[tuple[str, int]]) -> str:
+    """The value with the most weight; spelling differences ('PUNE' / 'Pune') count together."""
+    totals: Counter[str] = Counter()
+    shown: dict[str, str] = {}
+    for value, weight in values:
+        if value:
+            key = _key(value)
+            totals[key] += weight
+            shown.setdefault(key, value)
+    return shown[totals.most_common(1)[0][0]] if totals else ""
+
+
+def detect_place(pages: Iterable[tuple[BeautifulSoup, str]]) -> Location:
+    """State, country, city and postcode from the address on a site's pages; blanks when there is none."""
     clues: list[Clue] = []
     for tree, text in pages:
         clues += clues_from_schema(tree)
         clues += clues_from_text(text[:300_000])
 
-    countries: Counter[str] = Counter()
-    for _, code, weight in clues:
-        if code:
-            countries[code] += weight
-    country = countries.most_common(1)[0][0] if countries else ""
+    code = _vote((c.code, c.weight) for c in clues)
+    state = _vote((c.state, c.weight) for c in clues if c.code in (code, ""))
+    same = [c for c in clues if c.code in (code, "") and _key(c.state) in (_key(state), "")]
+    city = _vote((c.city, c.weight) for c in same)
+    postcode = _vote((c.postcode, c.weight) for c in same if _key(c.city) in (_key(city), ""))
+    return Location(state, country_name(code), city, postcode)
 
-    states: Counter[str] = Counter()
-    for state, code, weight in clues:
-        if state and code in (country, ""):
-            states[state] += weight
-    state = states.most_common(1)[0][0] if states else ""
-    return state, country_name(country)
+
+def detect_location(pages: Iterable[tuple[BeautifulSoup, str]]) -> tuple[str, str]:
+    """(state, country name) from the address on a site's pages; blanks when there is none."""
+    place = detect_place(pages)
+    return place.state, place.country
 
 
 # ------------------------------------------------------------------ full address text
@@ -395,7 +513,10 @@ def _line_end(text: str, pos: int) -> int:
 def _from_text(text: str) -> list[tuple[str, str]]:
     """(address, country code) for each address pattern written on a page, with its street lines."""
     found: list[tuple[str, str]] = []
-    for _, code, m_start, m_end in sorted(_written(text), key=lambda m: m[2]):
+    for m in sorted(_written(text), key=lambda m: m.start):
+        if m.weight < WRITTEN:  # "Pune, Maharashtra" alone is a place, not a postal address
+            continue
+        code, m_start, m_end = m.code, m.start, m.end
         start, end = _line_start(text, m_start), _line_end(text, m_end)
         lead = text[start:m_start]
         head = _cut_before(lead)
@@ -483,7 +604,7 @@ def _compose(fields: dict[str, object]) -> str:
 def _code_of(address: str, country: object = "") -> str:
     if isinstance(country, dict):
         country = country.get("name") or ""
-    return country_code(str(country or "")) or next((c for _, c, _, _ in _written(address) if c), "")
+    return country_code(str(country or "")) or next((m.code for m in _written(address) if m.code), "")
 
 
 def _from_schema(tree: BeautifulSoup) -> list[tuple[str, str]]:
