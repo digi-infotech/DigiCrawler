@@ -16,6 +16,14 @@ if errorlevel 1 (
 if not exist .env copy .env.example .env >nul
 
 echo.
+echo  Checking for updates...
+git pull --ff-only >nul 2>&1
+if errorlevel 1 (
+  echo  Could not check for updates ^(no internet, or a local change is in the way^).
+  echo  Starting with the version already on this computer.
+)
+
+echo.
 echo  Starting DigiCrawler... (the first time can take a few minutes)
 echo.
 docker compose up -d --build

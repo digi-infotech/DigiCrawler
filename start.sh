@@ -6,6 +6,7 @@ if ! docker info >/dev/null 2>&1; then
   exit 1
 fi
 [ -f .env ] || cp .env.example .env
+git pull --ff-only >/dev/null 2>&1 || echo "Could not check for updates (no internet, or a local change is in the way). Starting with the version already on this computer."
 docker compose up -d --build || { echo "Something went wrong. Send this output to the developer."; exit 1; }
 PORT=$(grep -E '^PORT=' .env | cut -d= -f2); PORT=${PORT:-3003}
 echo "DigiCrawler is running: http://localhost:$PORT"

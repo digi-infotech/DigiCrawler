@@ -12,16 +12,17 @@ DigiCrawler takes an **Excel list of websites** and gives you back the same list
 ### One-time setup (about 10 minutes)
 
 1. Install **Docker Desktop** from https://www.docker.com/products/docker-desktop/ and keep the default options.
-2. Restart your computer if the installer asks you to.
-3. Open **Docker Desktop** once and wait until the bottom-left corner says **Engine running**.
-4. Get the `site-contact-scraper` folder from your developer and put it anywhere, for example on your Desktop.
+2. Install **Git for Windows** from https://git-scm.com/downloads/win and keep the default options.
+3. Restart your computer if an installer asks you to.
+4. Open **Docker Desktop** once and wait until the bottom-left corner says **Engine running**.
+5. Ask your developer for the `clone.bat` file. Put it where you want DigiCrawler to live (for example your Desktop) and double-click it — this downloads the `DigiCrawler` folder next to it.
 
 ### Every time you use it
 
 | Step | What to do                                                                                                                                                                                                                                          |
 | ---- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 1    | Open **Docker Desktop** and wait for **Engine running**.                                                                                                                                                                                            |
-| 2    | Open the `site-contact-scraper` folder and **double-click `start.bat`**. A black window appears. The first time it takes a few minutes; after that, a few seconds.                                                                                  |
+| 2    | Open the `DigiCrawler` folder and **double-click `start.bat`**. A black window appears. It checks for the latest version automatically, so you're always on the newest one your developer published. The first time it takes a few minutes; after that, a few seconds.                                                                                  |
 | 3    | Your browser opens **http://localhost:3003**. If it doesn't, type that address into your browser yourself.                                                                                                                                          |
 | 4    | **Drop your Excel file** onto the page (or click the big box to browse).                                                                                                                                                                            |
 | 5    | **Check the preview.** The page shows which column it thinks holds the websites, plus the first few addresses. If it picked the wrong column, click the right one.                                                                                  |
