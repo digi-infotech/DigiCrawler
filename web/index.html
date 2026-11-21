@@ -178,6 +178,16 @@ h2 { font-size: 22px; font-weight: 650; }
 .feature span { color: var(--muted); font-size: 13.5px; line-height: 1.45; }
 .resume { display: flex; align-items: center; gap: 12px; padding: 14px 16px; margin-bottom: 20px; border-radius: 14px;
           background: var(--brand-soft); border: 1px solid color-mix(in srgb, var(--brand) 25%, transparent); }
+.live.wait { color: var(--warn); }
+.live.wait::before { background: var(--warn); }
+.recent { margin-top: 28px; }
+.recent ul { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 8px; }
+.recent li { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 12px 14px; border-radius: 14px;
+             background: var(--surface); border: 1px solid var(--line); }
+.recent .r-main { min-width: 0; flex: 1; }
+.recent .r-name { font-weight: 620; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.recent .r-actions { display: flex; gap: 8px; }
+.recent .btn { padding: 7px 12px; font-size: 13.5px; }
 .drag-overlay { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; pointer-events: none;
                 background: color-mix(in srgb, var(--bg) 70%, transparent); backdrop-filter: blur(4px);
                 opacity: 0; transition: opacity .15s; }
@@ -440,6 +450,11 @@ tbody tr:last-child td { border-bottom: 0; }
       <a class="link" href="/api/sample" download>Download a sample file</a>
     </div>
 
+    <div class="recent" id="recent" hidden>
+      <div class="section-label">Your recent checks <span class="muted small">· kept on this computer for 7 days</span></div>
+      <ul id="recentList"></ul>
+    </div>
+
     <div class="features">
       <div class="feature"><svg class="i"><use href="#i-layers"/></svg><b>Reads the whole site</b><span>Home, contact, about and services pages, including numbers written in plain text.</span></div>
       <div class="feature"><svg class="i"><use href="#i-mobile"/></svg><b>Mobiles kept separate</b><span>Mobile numbers get their own column. Fax and dummy numbers are left out.</span></div>
@@ -543,7 +558,8 @@ tbody tr:last-child td { border-bottom: 0; }
 
       <div class="start-bar" id="stopBar">
         <button class="btn btn-ghost" id="stopBtn" type="button"><svg class="i"><use href="#i-stop"/></svg>Stop and keep results</button>
-        <span class="small muted">You can close this tab — the check keeps running. Come back to this page to see it.</span>
+        <a class="btn btn-ghost" id="soFarBtn" href="#" download><svg class="i"><use href="#i-download"/></svg>Download results so far</a>
+        <span class="small muted">Every result is saved on this computer as soon as it's found. You can close this tab, lose the internet or restart the computer — the check carries on where it left off.</span>
       </div>
       <div class="stop-confirm" id="stopConfirm" hidden>
         <span>Stop now? Websites not checked yet will be marked as “not checked”.</span>
@@ -566,11 +582,13 @@ tbody tr:last-child td { border-bottom: 0; }
         </div>
         <span class="spacer"></span>
         <div class="row">
-          <button class="btn btn-ghost" id="againBtn" type="button"><svg class="i"><use href="#i-refresh"/></svg>Check another file</button>
+          <button class="btn btn-ghost" id="retryBtn" type="button" hidden><svg class="i"><use href="#i-refresh"/></svg><span id="retryLabel">Check again</span></button>
+          <button class="btn btn-ghost" id="againBtn" type="button"><svg class="i"><use href="#i-upload"/></svg>Check another file</button>
           <a class="btn btn-primary btn-lg" id="downloadBtn" href="#" download><svg class="i"><use href="#i-download"/></svg>Download Excel</a>
         </div>
       </div>
       <div class="stats" id="doneStats"></div>
+      <div id="doneAlert" role="alert" hidden></div>
     </div>
 
     <div class="toolbar">
@@ -703,7 +721,7 @@ function animateNumber(node, to) {
 function describeStatus(status) {
   if (status === "ok") return { text: "Found", kind: "ok", group: "found" };
   if (status === "no_contacts") return { text: "Nothing listed", kind: "", group: "none" };
-  if (status.startsWith("skipped: stopped")) return { text: "Not checked", kind: "", group: "problem", detail: "Stopped before this website was checked" };
+  if (status.startsWith("skipped: stopped") || status.startsWith("skipped: not checked")) return { text: "Not checked", kind: "", group: "problem", detail: "Stopped before this website was checked" };
   if (status.startsWith("skipped: no valid")) return { text: "No website", kind: "", group: "problem", detail: "This row has no usable website address" };
   if (status.includes("robots")) return { text: "Not allowed", kind: "warn", group: "problem", detail: "This website asks not to be visited by automated tools" };
   if (status.includes("even in a browser")) return { text: "Blocked", kind: "bad", group: "problem", detail: "Refused us, even when opened in a real browser" };
@@ -744,6 +762,7 @@ function go(next, { focus = true } = {}) {
   scrollTo({ top: 0, behavior: reduceMotion ? "auto" : "smooth" });
   if (focus) { const h = $("h-" + next); h && h.focus({ preventScroll: true }); }
   if (next !== "run") document.title = next === "results" ? "Results ready — DigiCrawler" : "DigiCrawler";
+  if (next === "upload") loadRecent();
 }
 
 /* ================================================================ 1. upload */
@@ -920,6 +939,7 @@ function startRun(job) {
   $("runFile").textContent = job.filename;
   $("stopConfirm").hidden = true; $("stopBar").hidden = false;
   $("stopBtn").disabled = false;
+  $("soFarBtn").href = `/api/jobs/${job.id}/download`;
   alertBox($("runAlert"), "");
   $("liveTag").className = "live"; $("liveTag").textContent = "Live";
   $("bar").classList.add("running");
@@ -936,10 +956,10 @@ async function poll() {
   try {
     const job = await api(`/api/jobs/${id}?since=${state.feedCount}`);
     state.pollFails = 0;
-    if ($("liveTag").textContent !== "Live" && job.status === "running") { $("liveTag").className = "live"; $("liveTag").textContent = "Live"; }
+    showConnection(job);
     applyJob(job);
     if (job.status === "running") return schedulePoll(document.hidden ? 4000 : 1000);
-    if (job.status === "done" || job.status === "cancelled") return showResults(job);
+    if (job.status === "done" || job.status === "cancelled" || job.status === "error") return showResults(job);
     throw Object.assign(new Error(job.error || "Something went wrong while checking."), { fatal: true });
   } catch (err) {
     if (err.status === 404 || err.fatal) {
@@ -953,7 +973,27 @@ async function poll() {
     }
     state.pollFails++;
     $("liveTag").className = "live off"; $("liveTag").textContent = "Reconnecting…";
-    schedulePoll(Math.min(10000, 1000 * 2 ** state.pollFails));
+    if (state.pollFails >= 3) {
+      alertBox($("runAlert"), "Can't reach DigiCrawler right now — the computer or the app may be restarting. " +
+        "Nothing is lost: everything found so far is saved, and the check carries on by itself once DigiCrawler is running again. " +
+        "This page will reconnect on its own.", "warn");
+      state.connAlert = true;
+    }
+    schedulePoll(Math.min(5000, 1000 * 2 ** state.pollFails));
+  }
+}
+
+/* Live / waiting for internet, and clearing the "can't reach" note once we're back. */
+function showConnection(job) {
+  if (job.status !== "running") return;
+  if (job.offline) {
+    $("liveTag").className = "live wait"; $("liveTag").textContent = "Waiting for internet";
+    alertBox($("runAlert"), "The internet connection is down, so the check is paused. It will carry on by itself as soon as " +
+      "the connection is back — nothing is lost, and websites aren't marked as failed because of it.", "warn");
+    state.connAlert = true;
+  } else {
+    if ($("liveTag").textContent !== "Live") { $("liveTag").className = "live"; $("liveTag").textContent = "Live"; }
+    if (state.connAlert) { alertBox($("runAlert"), ""); state.connAlert = false; }
   }
 }
 
@@ -1043,7 +1083,7 @@ async function showResults(job) {
   }
   state.job = { ...state.job, ...job };
   state.filter = "all"; state.query = ""; state.shown = 50; $("search").value = "";
-  const stopped = job.status === "cancelled";
+  const stopped = job.status === "cancelled" || job.status === "error";
   $("doneIcon").classList.toggle("stopped", stopped);
   $("h-results").textContent = stopped
     ? `Stopped early — contacts found on ${fmt(job.with_contacts)} of ${plural(job.done, "checked website", "checked websites")}`
@@ -1057,6 +1097,11 @@ async function showResults(job) {
   updateStats($("doneStats"), job);
   state.analytics = Boolean(job.analytics);
   $("downloadBtn").href = `/api/jobs/${job.id}/download`;
+  $("retryBtn").hidden = !job.to_retry;
+  $("retryLabel").textContent = job.status === "error" ? "Carry on checking"
+    : `Check ${plural(job.to_retry || 0, "website", "websites")} again`;
+  $("retryBtn").title = "Checks again the websites that couldn't be opened or weren't checked yet. Everything already found is kept.";
+  alertBox($("doneAlert"), job.status === "error" ? job.error : "", "warn");
   $("resultsTable").classList.toggle("simple", !state.analytics);
   $("tabs").hidden = !state.analytics;
   renderTabs();
@@ -1181,25 +1226,87 @@ function resetToUpload() {
   go("upload");
 }
 $("againBtn").addEventListener("click", resetToUpload);
+$("retryBtn").addEventListener("click", async () => {
+  $("retryBtn").disabled = true;
+  try {
+    const job = await api(`/api/jobs/${state.job.id}/retry`, { method: "POST" });
+    store.set("cf-job", job.id);
+    startRun(job);
+  } catch (err) { alertBox($("doneAlert"), err.message); }
+  finally { $("retryBtn").disabled = false; }
+});
+
+/* ================================================================ recent checks
+   Listed from the app's disk, so they can always be found again, even from another browser. */
+const JOB_STATE = { running: ["Running", "live"], done: ["Finished", "pill ok"], cancelled: ["Stopped", "pill warn"],
+                    error: ["Needs attention", "pill bad"] };
+function when(ts) {
+  const d = new Date(ts * 1000);
+  const time = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  return d.toDateString() === new Date().toDateString() ? `Today ${time}`
+    : `${d.toLocaleDateString([], { day: "numeric", month: "short" })} ${time}`;
+}
+async function openJob(id) {
+  try {
+    const job = await api(`/api/jobs/${id}`);
+    store.set("cf-job", job.id);
+    if (job.status === "running") startRun(job); else showResults(job);
+  } catch (err) { alertBox($("uploadAlert"), err.message); }
+}
+async function loadRecent() {
+  let jobs;
+  try { jobs = (await api("/api/jobs")).jobs; } catch { return; }
+  $("recent").hidden = !jobs.length;
+  $("recentList").replaceChildren(...jobs.map((j) => {
+    const [label, cls] = JOB_STATE[j.status] || ["", "pill"];
+    const partial = j.status === "running" || j.status === "error";
+    return el("li", {},
+      el("div", { class: "r-main" },
+        el("div", { class: "r-name", text: j.filename }),
+        el("div", { class: "small muted num",
+          text: `${when(j.created)} · ${fmt(j.done)} of ${plural(j.total, "website", "websites")} checked · contacts on ${fmt(j.with_contacts)}` })),
+      j.status === "running" && j.offline ? el("span", { class: "live wait", text: "Waiting for internet" })
+        : el("span", { class: cls, text: label }),
+      el("div", { class: "r-actions" },
+        el("button", { class: "btn btn-ghost", type: "button", text: j.status === "running" ? "View progress" : "Open",
+          onclick: () => openJob(j.id) }),
+        j.done ? el("a", { class: "btn btn-ghost", href: `/api/jobs/${j.id}/download`, download: true,
+          text: partial ? "Download so far" : "Download" }) : null));
+  }));
+}
 
 /* ================================================================ resume after reload */
 (async function resume() {
   const id = store.get("cf-job");
   if (!id) return go("upload", { focus: false });
   $("stage-upload").hidden = true;  // avoid flashing the upload screen while we look the job up
-  try {
-    const job = await api(`/api/jobs/${id}`);
-    if (job.status === "running") {
-      $("resumeText").textContent = `${job.filename} · ${fmt(job.done)} of ${fmt(job.total)} websites checked`;
-      $("resume").hidden = false;
-      $("resumeBtn").onclick = () => startRun(job);
-      startRun(job);
-    } else if (job.status === "done" || job.status === "cancelled") {
-      showResults(job);
-    } else {
-      store.del("cf-job"); go("upload", { focus: false });
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const job = await api(`/api/jobs/${id}`);
+      alertBox($("uploadAlert"), "");
+      if (job.status === "running") {
+        $("resumeText").textContent = `${job.filename} · ${fmt(job.done)} of ${fmt(job.total)} websites checked`;
+        $("resume").hidden = false;
+        $("resumeBtn").onclick = () => startRun(job);
+        startRun(job);
+      } else {
+        showResults(job);
+      }
+      return;
+    } catch (err) {
+      if (err.status && ![502, 503, 504].includes(err.status)) {  // the app answered: the job is gone or unreadable
+        if (err.status === 404) store.del("cf-job");
+        go("upload", { focus: false });
+        return alertBox($("uploadAlert"), err.message);
+      }
+      // The app isn't answering yet (e.g. the computer just restarted). Keep the job and keep trying.
+      if (attempt === 1) {
+        go("upload", { focus: false });
+        alertBox($("uploadAlert"), "Waiting for DigiCrawler to start… Your last check is saved and will open here by itself.", "warn");
+      }
+      await new Promise((r) => setTimeout(r, Math.min(5000, 1000 * (attempt + 1))));
     }
-  } catch { store.del("cf-job"); go("upload", { focus: false }); }
+  }
 })();
 </script>
 </body>

@@ -19,6 +19,9 @@ class Settings:
     # False = quick mode ("Analytics mode" off): open extra pages / the browser only while no email or
     # mobile has been found, and skip the address. True = check every planned page for every detail.
     analytics: bool = True
+    # Pause when the internet connection drops instead of saving every website as failed
+    # (see netguard). Off by default here so tests never touch the network; on by default in .env.
+    online_check: bool = False
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -29,6 +32,7 @@ class Settings:
             timeout=float(os.getenv("TIMEOUT", "15")),
             respect_robots=_env_bool("RESPECT_ROBOTS", True),
             use_browser=_env_bool("WITH_BROWSER", True),
+            online_check=_env_bool("ONLINE_CHECK", True),
         )
 
 

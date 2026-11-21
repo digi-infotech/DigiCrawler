@@ -20,15 +20,19 @@ def xlsx_bytes(rows) -> bytes:
 
 
 SETTINGS_SEEN: list = []
+RUN_URLS: list = []
 
 
 @pytest.fixture
 def client(tmp_path, monkeypatch):
     monkeypatch.setattr(api, "JOBS_DIR", tmp_path / "jobs")
     api.JOBS.clear()
+    api.UPLOADS.clear()
+    RUN_URLS.clear()
 
-    async def fake_run(urls, settings, on_progress=None):  # no internet in tests
+    async def fake_run(urls, settings, on_progress=None, on_network=None):  # no internet in tests
         SETTINGS_SEEN.append(settings)
+        RUN_URLS.append(list(urls))
         unique = list(dict.fromkeys(u for u in urls if u))
         results = {}
         for i, u in enumerate(unique, 1):
@@ -36,7 +40,7 @@ def client(tmp_path, monkeypatch):
                                      phones=["+91 98450 43210", "+91 22 2345 6789"], status="ok")
                           if "good" in u else SiteResult(u, status="error: website address not found"))
             if on_progress:
-                on_progress(i, len(unique), results[u])
+                await on_progress(i, len(unique), results[u])
         return [results.get(u) or SiteResult("", status="skipped: no valid website address") for u in urls]
 
     monkeypatch.setattr(api, "run", fake_run)
@@ -124,7 +128,7 @@ def test_unknown_job_and_early_download(client):
     assert client.get("/api/jobs/000000000000").status_code == 404
     assert client.get("/api/jobs/../../etc").status_code == 404
     api.JOBS["abcabcabcabc"] = api.Job(id="abcabcabcabc", filename="x.xlsx", total=1)
-    assert client.get("/api/jobs/abcabcabcabc/download").status_code == 409
+    assert client.get("/api/jobs/abcabcabcabc/results").status_code == 409
 
 
 # ------------------------------------------------------------------ upload preview, live feed, results, cancel
@@ -171,11 +175,11 @@ def test_unknown_upload_id(client):
 def test_cancel_keeps_finished_results(client, monkeypatch):
     import asyncio
 
-    async def slow_run(urls, settings, on_progress=None):
+    async def slow_run(urls, settings, on_progress=None, on_network=None):
         unique = list(dict.fromkeys(u for u in urls if u))
         for i, u in enumerate(unique, 1):
             await asyncio.sleep(0.05 if i == 1 else 30)
-            on_progress(i, len(unique), SiteResult(u, u, emails=["a@x.in"], status="ok"))
+            await on_progress(i, len(unique), SiteResult(u, u, emails=["a@x.in"], status="ok"))
         return []
 
     monkeypatch.setattr(api, "run", slow_run)

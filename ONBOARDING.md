@@ -26,11 +26,22 @@ DigiCrawler takes an **Excel list of websites** and gives you back the same list
 | 4    | **Drop your Excel file** onto the page (or click the big box to browse).                                                                                                                                                                            |
 | 5    | **Check the preview.** The page shows which column it thinks holds the websites, plus the first few addresses. If it picked the wrong column, click the right one.                                                                                  |
 | 6    | Pick the **country** where most of the businesses are. It's only a fallback: each website's own country is detected automatically where possible (see below). Leave **Analytics mode** off for a quick contact list, or turn it on for every detail (see below). |
-| 7    | Click **Start checking**. You'll see a live count of emails and numbers, the websites just checked, and the time left. You can close the tab; reopening the page brings you back to the check. Need to stop early? Click **Stop and keep results**. |
-| 8    | On the results screen, **search** or filter the list, **click any email or number to copy it**, or use **Copy emails / Copy mobiles** to copy a whole list. Click **Download Excel** to save the file.                                             |
+| 7    | Click **Start checking**. You'll see a live count of emails and numbers, the websites just checked, and the time left. You can close the tab; reopening the page brings you back to the check. **Download results so far** gives you an Excel file of everything found up to now. Need to stop early? Click **Stop and keep results**. |
+| 8    | On the results screen, **search** or filter the list, **click any email or number to copy it**, or use **Copy emails / Copy mobiles** to copy a whole list. Click **Download Excel** to save the file. If some websites couldn't be opened (or you stopped early), **Check N websites again** retries just those and keeps everything already found. |
 | 9    | When you're finished for the day, **double-click `stop.bat`**.                                                                                                                                                                                      |
 
 > On a Mac, open Terminal in the folder and run `./start.sh` and `./stop.sh` instead of the `.bat` files.
+
+### Nothing gets lost
+
+Every website's result is saved on this computer the moment it's found, so a long check (even 5,000 websites) is safe:
+
+- **You refresh or close the page**: open http://localhost:3003 again. It goes straight back to your check.
+- **The internet drops, or the laptop goes to sleep**: the check **pauses** and the page shows **Waiting for internet**. When the connection is back it carries on by itself. Websites aren't marked as failed because of the outage; any website that was being checked at that moment is simply checked again.
+- **The computer restarts or switches off, or you run `stop.bat` in the middle**: start DigiCrawler again (`start.bat`). The check **carries on where it left off**. Websites already done aren't checked twice. If the page was open, it reconnects by itself.
+- **You lost track of a check**: the upload page lists **Your recent checks** (the last 7 days), with **Open** and **Download** buttons.
+
+Tip: in Docker Desktop, go to *Settings → General* and turn on **Start Docker Desktop when you sign in**. Then, after a restart, DigiCrawler starts by itself and an unfinished check carries on without you doing anything.
 
 ### How your Excel file should look
 
@@ -69,7 +80,7 @@ With Analytics mode on, the result has your original columns plus these:
 | `mobile_1`, `mobile_2`, … | One **mobile or WhatsApp number** per column (e.g. `+91 98450 43210`), with the same "as many as needed" rule.                                                                                                                                                                                    |
 | `phone_1`, `phone_2`, …   | One **telephone (landline) number** per column. Mobiles aren't repeated here.                                                                                                                                                                                                                     |
 | `source_pages`   | The pages where the contacts were found, so you can double-check them                                                                                                                                                                                                                                       |
-| `status`         | `ok` = contacts found · `no_contacts` = the site opened, but nothing was listed · `error: …` = the site couldn't be opened or blocked us · `skipped: …` = no valid website in that row, or the site doesn't allow automated visits                                                                          |
+| `status`         | `ok` = contacts found · `no_contacts` = the site opened, but nothing was listed · `error: …` = the site couldn't be opened or blocked us · `skipped: …` = no valid website in that row, or the site doesn't allow automated visits · `skipped: stopped before this website was checked` = you clicked Stop · `skipped: not checked yet` = in a "results so far" file, the check hadn't reached this website yet |
 
 ### Where it looks, and what it picks up
 
@@ -90,7 +101,10 @@ With Analytics mode on, the result has your original columns plus these:
   - `skipped: … (robots.txt)` → the website's robots.txt file **asks** tools not to visit, and we respect that. Nothing was requested.
   - `error: website blocked automated visits (403)` → we asked for the page and the website's security service (Cloudflare, Akamai…) **refused** because the visit didn't look like a person. When this happens, Contact Finder **automatically opens the site in a real (hidden) Chrome browser**. It keeps cookies between pages, waits for "Checking your browser…" screens to finish, and scrolls down so footers load. Rows rescued this way show a **via browser** tag on the results page.
   - `error: website blocked automated visits, even in a browser` → the site refused the real browser too. Open it yourself to copy the details.
-- **Some rows say `error`**: the website may be down or the address may be wrong. Check that row's address in your browser.
+- **Some rows say `error`**: the website may be down or the address may be wrong. Check that row's address in your browser, or click **Check N websites again** on the results screen to retry only those.
+- **The page says "Waiting for internet" but my internet works**: your network may block the connection test. Ask the developer to set `ONLINE_CHECK_HOSTS` (see Settings).
+- **The page says "Waiting for DigiCrawler to start"**: the app isn't running yet (for example, just after a restart). Open Docker Desktop and double-click `start.bat`. Your check is saved and opens by itself.
+- **The results say "Needs attention"**: something stopped the check, most often a full disk. Free up some space and click **Carry on checking**. Nothing found so far is lost.
 - **A row says `no_contacts` but I can see a phone number on the site**: the browser fallback already looked at the site the way a visitor sees it. The number is most likely shown as a picture, or only after clicking a button or filling a form.
 - **How long does it take?** Roughly 1–2 minutes per 100 websites when sites answer normally. Sites that need the browser take longer (about 15–60 seconds each, 3 at a time).
 
@@ -107,7 +121,7 @@ Browser ──► nginx (port 3003) ──► /            → web/index.html (s
 
 - **app**: Python 3.12, FastAPI. Uses `httpx` for async fetching, `BeautifulSoup` for parsing, `phonenumbers` for validation and `openpyxl` for Excel.
 - **nginx**: serves the page and proxies `/api`. The upload limit is 20 MB.
-- **data/**: mounted into the container at `/data`. Each upload and its result are kept in `data/jobs/<id>/` and deleted automatically after 7 days.
+- **data/**: mounted into the container at `/data`. Each upload and its result are kept in `data/jobs/<id>/` and deleted automatically after 7 days. This folder is the app's only real state (see *How checks survive restarts*).
 
 Code map (`src/contact_scraper/`):
 
@@ -117,9 +131,31 @@ Code map (`src/contact_scraper/`):
 | `address.py`        | Pure functions: the postal address, plus state and country from it (schema.org or text)  |
 | `fetcher.py`        | HTTP client, retries, robots.txt, headless-browser sessions (Playwright)                  |
 | `crawler.py`        | One site: homepage + contact/about/services pages, country detection, block-page handling |
-| `runner.py`         | All rows in parallel, with progress callbacks (shared by CLI + API)                       |
+| `runner.py`         | All rows in parallel, with progress callbacks (shared by CLI + API); pauses while offline |
+| `netguard.py`       | Tells "the internet is down" apart from "this website is down"                           |
+| `jobstore.py`       | Crash-safe job files on disk (`job.json`, `plan.json`, `results.jsonl`)                   |
 | `excel_io.py`       | Read the input, detect the URL column, write the output                                   |
 | `api.py` / `cli.py` | Web API and command-line entry points                                                     |
+
+### How checks survive restarts
+
+The disk is the source of truth; memory is only a cache so the page gets quick answers. Each job folder `data/jobs/<id>/` holds:
+
+| File            | Written                                    | Holds                                                                       |
+| --------------- | ------------------------------------------ | --------------------------------------------------------------------------- |
+| `input.xlsx`    | on upload                                  | the uploaded file, untouched (`upload.json` keeps its name for the preview) |
+| `plan.json`     | once, when the check starts                | the website and name of every input row                                     |
+| `job.json`      | atomically (temp file + rename) on changes | settings, status, counters, time spent                                      |
+| `results.jsonl` | appended + `fsync` for every website       | one result per line; `{"reset": [...]}` lines come from "Check again"       |
+| `output.xlsx`   | atomically, at the end                     | the finished file                                                           |
+
+- A result goes to disk **before** the page is told about it. If the power goes mid-write, only the last line can be cut short; it's dropped when the file is read (and the file repaired), and that one website is checked again.
+- When the app starts, it reads every job folder. Unfinished jobs carry on with the websites that have no saved result, so nothing is checked twice. Finished jobs are read from disk the first time they're opened. A damaged folder is skipped with a log line and doesn't stop the app.
+- Shutting the app down (`stop.bat`, `docker compose down`, Ctrl+C) is **not** "Stop": the job stays `running` on disk and carries on at the next start. Only the Stop button marks it `cancelled`.
+- **Internet outages** (`netguard.py`): a website's result is kept only after a connection test that *started after the website finished* succeeds. The test connects to a few big hosts (DNS + TCP; `ONLINE_CHECK_HOSTS`). If it fails, the run pauses (the job's `offline` flag, shown on the page), tests again every 5 s, and re-checks the websites that were in progress. An "address not found" result also gets one more try 2 s later, in case it was a short DNS hiccup.
+- If saving fails (for example, the disk is full), the job ends as `error` with a plain message. Everything saved is still downloadable, and `POST /api/jobs/{id}/retry` carries on.
+
+API additions: `GET /api/jobs` (recent checks), `POST /api/jobs/{id}/retry` (redo failed and unchecked websites), and `GET /api/jobs/{id}/download` while running (results so far, unchecked rows marked `skipped: not checked yet`).
 
 ### Run with Docker (recommended)
 
@@ -178,6 +214,8 @@ The upload page in `web/` expects nginx in front of the API, so use Docker to te
 | `RESPECT_ROBOTS`      | `true`  | Honour robots.txt                                               |
 | `WITH_BROWSER`        | `true`  | Automatic headless-Chrome fallback (see below)                  |
 | `BROWSER_CONCURRENCY` | `3`     | Sites using the browser at the same time (~150–300 MB RAM each) |
+| `ONLINE_CHECK`        | `true`  | Pause while the internet is down instead of marking sites failed |
+| `ONLINE_CHECK_HOSTS`  | `www.google.com:443,one.one.one.one:443,www.microsoft.com:443` | Hosts for the connection test (any one answering = online) |
 | `PORT`                | `3003`  | Port on your computer                                           |
 
 After changing `.env`, run `docker compose up -d --build`, or double-click `start.bat` again.
@@ -205,4 +243,5 @@ In the live test (26 sites) the fallback raised sites with contacts from 10 to 1
 | `DLL load failed … Application Control policy` when running locally on Windows | Your PC blocks some compiled Python packages. Use Docker instead.                                    |
 | Many `error: website took too long` rows                                       | Lower `CONCURRENCY` (e.g. `8`) or raise `TIMEOUT`                                                    |
 | CLI says `/data/input.xlsx does not exist` in **Git Bash**                     | Git Bash rewrites `/data/...` paths. Prefix the command with `MSYS_NO_PATHCONV=1`, or use PowerShell |
-| Need to start fresh                                                            | `docker compose down`, then delete `data/jobs/`                                                      |
+| Page stuck on "Waiting for internet" while the internet works                  | A firewall blocks the connection test. Set `ONLINE_CHECK_HOSTS` to hosts you can reach, or `ONLINE_CHECK=false` |
+| Need to start fresh                                                            | `docker compose down`, then delete `data/jobs/` (this also forgets unfinished checks)                |
