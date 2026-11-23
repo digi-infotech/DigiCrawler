@@ -212,7 +212,7 @@ The upload page in `web/` expects nginx in front of the API, so use Docker to te
 
 | Variable              | Default | Meaning                                                         |
 | --------------------- | ------- | --------------------------------------------------------------- |
-| `REGION`              | `US`    | Fallback country, preselected on the page                       |
+| `REGION`              | `IN`    | Fallback country, preselected on the page                       |
 | `CONCURRENCY`         | `20`    | Sites checked in parallel                                       |
 | `MAX_PAGES`           | `6`     | Pages per site (homepage + contact/about/services)              |
 | `TIMEOUT`             | `15`    | Seconds before a site is treated as unreachable                 |

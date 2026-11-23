@@ -23,7 +23,7 @@ class Settings:
     @classmethod
     def from_env(cls) -> "Settings":
         return cls(
-            region=os.getenv("REGION", "US").upper(),
+            region=os.getenv("REGION", "IN").upper(),
             concurrency=int(os.getenv("CONCURRENCY", "20")),
             max_pages=int(os.getenv("MAX_PAGES", "6")),
             timeout=float(os.getenv("TIMEOUT", "15")),
