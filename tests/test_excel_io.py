@@ -99,10 +99,10 @@ def test_simple_mode_keeps_businesses_with_email_or_mobile(tmp_path):
     write_results(tmp_path / "out.xlsx", read_sheet(src), results, analytics=False)
     rows = list(load_workbook(tmp_path / "out.xlsx").active.iter_rows(values_only=True))
     assert rows == [
-        ("Business", "Website", "Type", "business_name", "city", "state", "pin_code", "country", "email_1", "mobile_1",
-         "mobile_2"),
-        ("A", "a.in", "Cafe", "A Cafe", "Panaji", "Goa", "403001", "India", "a@a.in", None, None),
-        ("D", "d.in", "Gym", "D Gym", None, None, None, None, None, "+91 98450 43210", "+91 98450 43211"),
+        ("Business", "Website", "Type", "business_name", "address", "city", "state", "pin_code", "country",
+         "email_1", "mobile_1", "mobile_2"),
+        ("A", "a.in", "Cafe", "A Cafe", "1 MG Road", "Panaji", "Goa", "403001", "India", "a@a.in", None, None),
+        ("D", "d.in", "Gym", "D Gym", None, None, None, None, None, None, "+91 98450 43210", "+91 98450 43211"),
     ]
 
 

@@ -440,7 +440,7 @@ tbody tr:last-child td { border-bottom: 0; }
       <svg class="border" aria-hidden="true"><rect x="1" y="1" rx="21" ry="21" style="width:calc(100% - 2px);height:calc(100% - 2px)"/></svg>
       <span class="drop-icon" aria-hidden="true"><svg class="i"><use href="#i-upload"/></svg></span>
       <span class="drop-title" id="dropTitle">Drop your Excel file here</span>
-      <span class="drop-sub" id="dropHint">or <b>browse your computer</b> · .xlsx · up to <span class="num" id="maxRows">5,000</span> websites</span>
+      <span class="drop-sub" id="dropHint">or <b>browse your computer</b> · .xlsx · up to <span class="num" id="maxRows">20,000</span> websites</span>
     </button>
     <input type="file" id="fileInput" accept=".xlsx,.xlsm" hidden>
     <div id="uploadAlert" role="alert" hidden></div>
@@ -768,7 +768,7 @@ function go(next, { focus = true } = {}) {
 /* ================================================================ 1. upload */
 const state = { upload: null, column: null, showAllCols: false, job: null, feedCount: 0, rows: [],
                 filter: "all", query: "", shown: 50, pollFails: 0, pollTimer: null };
-let config = { region: "IN", max_rows: 5000 };
+let config = { region: "IN", max_rows: 20000 };
 
 api("/api/config").then((cfg) => {
   config = cfg;
@@ -1108,12 +1108,13 @@ async function showResults(job) {
   renderRows();
 }
 
-/* Analytics mode is chosen before the check starts, and is off every time (the quicker check).
+/* Analytics mode is chosen before the check starts, and is off every time. Both modes check
+   every website the same way; the mode only decides what the results show.
    Off: only businesses with an email or a mobile, and only the essential details. */
 function describeMode() {
   $("analyticsHint").textContent = $("analyticsToggle").checked
-    ? "On: every website and every detail — address, landline numbers, where each contact was found and why a website failed. Opens more pages, so it's slower."
-    : "Off (quicker): stops looking once an email or mobile is found. The file lists only businesses with an email or mobile number: name, city, state, PIN code, country, emails and mobiles.";
+    ? "On: every website and every detail — landline numbers, where each contact was found and why a website failed."
+    : "Off: the file lists only businesses with an email or mobile number: name, address, city, state, PIN code, country, emails and mobiles.";
 }
 $("analyticsToggle").addEventListener("change", describeMode);
 describeMode();
@@ -1177,7 +1178,7 @@ function renderRows() {
             el("div", { style: "min-width:0" },
               el("div", { class: "site-name", text: r.name || host || "(no website)" }),
               safeHref ? el("a", { class: "site-link", href: safeHref, target: "_blank", rel: "noopener noreferrer", text: r.name ? host : r.site }) : null,
-              state.analytics && r.address ? el("div", { class: "found-on", text: r.address })
+              r.address ? el("div", { class: "found-on", text: r.address })
                 : r.city || r.state || r.country ? el("div", { class: "found-on", text: [r.city, [r.state, r.pin_code].filter(Boolean).join(" "), r.country].filter(Boolean).join(", ") }) : null,
               state.analytics && r.pages.length ? el("div", { class: "found-on", text: `Found on ${r.pages.map(pathOf).join(", ")}` }) : null))),
         el("td", { "data-label": "Emails" }, chipList(r.emails, "email", "email")),

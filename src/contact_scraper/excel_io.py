@@ -23,7 +23,7 @@ COLUMNS_BEFORE = ["business_name", "website_final", "address", "city", "state", 
 COLUMNS_AFTER = ["source_pages", "status"]
 SPLIT_KINDS = ("email", "mobile", "phone")
 # Analytics mode off: only what a salesperson needs, and only rows with an email or a mobile.
-SIMPLE_BEFORE = ["business_name", "city", "state", "pin_code", "country"]
+SIMPLE_BEFORE = ["business_name", "address", "city", "state", "pin_code", "country"]
 SIMPLE_KINDS = ("email", "mobile")
 MAX_PER_KIND = 50  # a site listing more is a directory, not one business; extra values are dropped
 EXCEL_CELL_LIMIT = 32_000

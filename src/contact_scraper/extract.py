@@ -154,8 +154,15 @@ BLOCKED_RE = re.compile(
 )
 
 
+# A bare script that sets a cookie and reloads, e.g. <script>document.cookie = "humans_21909=1";
+# document.location.reload(true)</script>. A real browser passes it on its own.
+COOKIE_CHECK_RE = re.compile(r"document\.cookie\s*=.{0,200}?location\.reload", re.IGNORECASE | re.DOTALL)
+
+
 def looks_blocked(html: str) -> bool:
     """A small 'Access denied' / 'Checking your browser' page instead of the website."""
+    if len(html or "") < 2_000 and COOKIE_CHECK_RE.search(html):
+        return True
     slim = slim_html(html)
     return len(slim) < 30_000 and bool(BLOCKED_RE.search(slim))
 

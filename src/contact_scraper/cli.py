@@ -29,7 +29,7 @@ def main(
     max_pages: Optional[int] = typer.Option(None, help="Max pages opened per website."),
     browser: Optional[bool] = typer.Option(None, "--browser/--no-browser", help="Use headless browser for JS-heavy sites."),
     ignore_robots: bool = typer.Option(False, "--ignore-robots", help="Don't check robots.txt."),
-    analytics: bool = typer.Option(True, "--analytics/--simple", help="--simple: quicker check that opens extra pages only until an email or mobile is found, and saves only businesses with one (name, state, country, emails, mobiles)."),
+    analytics: bool = typer.Option(True, "--analytics/--simple", help="--simple: same full check, but saves only businesses with an email or mobile (name, address, city, state, PIN code, country, emails, mobiles)."),
     verbose: bool = typer.Option(False, "--verbose", "-v"),
 ) -> None:
     logging.basicConfig(level=logging.INFO if verbose else logging.WARNING, format="%(levelname)s %(message)s")
@@ -46,7 +46,6 @@ def main(
         settings.use_browser = browser
     if ignore_robots:
         settings.respect_robots = False
-    settings.analytics = analytics
 
     output = output or input_file.with_name(f"{input_file.stem}_contacts.xlsx")
 

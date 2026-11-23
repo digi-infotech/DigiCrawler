@@ -82,17 +82,18 @@ def test_full_flow(client):
 
 
 
-def test_quick_mode_job_gives_the_simple_file(client):
-    """Analytics mode off: a quick check, and only rows with an email or mobile, essential columns only."""
+def test_simple_mode_job_gives_the_simple_file(client):
+    """Analytics mode off: only rows with an email or mobile, essential columns only."""
     content = xlsx_bytes([["Name", "Website"], ["A", "good-a.in"], ["B", "bad-b.in"], ["C", None], ["D", "good-a.in"]])
     job = wait_done(client, upload(client, content, analytics=False).json()["id"])
-    assert job["analytics"] is False and SETTINGS_SEEN[-1].analytics is False
+    assert job["analytics"] is False
     dl = client.get(f"/api/jobs/{job['id']}/download")
     assert 'filename="list_contacts.xlsx"' in dl.headers["content-disposition"]
     rows = list(load_workbook(io.BytesIO(dl.content)).active.iter_rows(values_only=True))
-    assert rows == [("Name", "Website", "business_name", "city", "state", "pin_code", "country", "email_1", "mobile_1"),
-                    ("A", "good-a.in", None, None, None, None, None, "info@good-a.in", "+91 98450 43210"),
-                    ("D", "good-a.in", None, None, None, None, None, "info@good-a.in", "+91 98450 43210")]
+    assert rows == [("Name", "Website", "business_name", "address", "city", "state", "pin_code", "country",
+                     "email_1", "mobile_1"),
+                    ("A", "good-a.in", None, None, None, None, None, None, "info@good-a.in", "+91 98450 43210"),
+                    ("D", "good-a.in", None, None, None, None, None, None, "info@good-a.in", "+91 98450 43210")]
 
 
 def test_config(client):

@@ -346,41 +346,24 @@ async def test_cloudflare_challenge_on_contact_page_is_skipped(web):
     assert r.phones == ["+91 98450 43210"]
 
 
-# ----------------------------------------------------------------- quick mode (analytics off)
+# ----------------------------------------------------------------- every planned page is opened
 
 MENU = '<nav><a href="/contact">Contact</a> <a href="/about">About</a> <a href="/services">Services</a></nav>'
 
 
-async def test_quick_mode_stops_at_homepage_with_email_and_mobile(web):
-    nav = MENU
-    web.site("https://quick.in", {"/": page(nav + "<p>info@quick.in · 98450 43210</p>"),
-                                  "/contact": page("<p>sales@quick.in</p>"), "/about": page("<p>About</p>")})
-    r = await scrape("https://quick.in", analytics=False)
-    assert web.fetched("https://quick.in") == ["/"]
-    assert (r.emails, r.mobiles, r.status) == (["info@quick.in"], ["+91 98450 43210"], "ok")
+async def test_contact_page_is_read_even_when_homepage_has_email_and_mobile(web):
+    """Nothing is missed: extra emails and mobiles on the contact page are kept too."""
+    nav = MENU.replace("/contact", "/contact.php")
+    web.site("https://more.in", {"/": page(nav + "<p>info@more.in · 98450 43210</p>"),
+                                 "/contact.php": page("<p>sales@more.in · Mobile 98450 43211</p>"),
+                                 "/about": page("<p>About</p>"), "/services": page("<p>x</p>")})
+    r = await scrape("https://more.in")
+    assert "/contact.php" in web.fetched("https://more.in")
+    assert r.emails == ["info@more.in", "sales@more.in"]
+    assert r.mobiles == ["+91 98450 43210", "+91 98450 43211"]
 
 
-async def test_quick_mode_opens_contact_page_but_not_about(web):
-    nav = MENU
-    web.site("https://quick2.in", {"/": page(nav + "<p>info@quick2.in</p>"),
-                                   "/contact": page("<p>Mobile: 98450 43210</p>"),
-                                   "/about": page("<p>hr@quick2.in</p>"), "/services": page("<p>x</p>")})
-    r = await scrape("https://quick2.in", analytics=False)
-    assert sorted(web.fetched("https://quick2.in")) == ["/", "/contact"]
-    assert (r.emails, r.mobiles) == (["info@quick2.in"], ["+91 98450 43210"])
-    assert r.address == ""  # not worked out in quick mode
-
-
-async def test_quick_mode_falls_back_to_about_pages_when_nothing_found(web):
-    nav = MENU
-    web.site("https://quick3.in", {"/": page(nav), "/contact": page("<p>Use the form below.</p>"),
-                                   "/about": page("<p>Write to hello@quick3.in</p>"), "/services": page("<p>x</p>")})
-    r = await scrape("https://quick3.in", analytics=False)
-    assert {"/about", "/services"} <= set(web.fetched("https://quick3.in"))
-    assert r.emails == ["hello@quick3.in"]
-
-
-async def test_analytics_mode_opens_every_planned_page(web):
+async def test_every_planned_page_is_opened(web):
     nav = MENU
     web.site("https://full.in", {"/": page(nav + "<p>info@full.in · 98450 43210</p>"),
                                  "/contact": page("<p>sales@full.in</p>"), "/about": page("<p>About</p>"),

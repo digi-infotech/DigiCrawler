@@ -27,7 +27,8 @@ HEADERS = {
 MAX_BYTES = 3_000_000
 RETRY_STATUS = {429, 500, 502, 503, 504}
 RETRY_BACKOFF = 1.5  # seconds; grows with each attempt
-BLOCK_STATUS = {401, 403, 429, 503}  # answers that usually mean "you look like a bot"
+BLOCK_STATUS = {401, 403, 409, 429, 503}  # answers that usually mean "you look like a bot"
+# (409: some Apache hosts answer with a tiny "set a cookie and reload" script page instead.)
 
 
 class FetchError(Exception):
@@ -49,7 +50,7 @@ class FetchError(Exception):
 
 
 def status_message(code: int) -> str:
-    if code in (401, 403):
+    if code in (401, 403, 409):
         return f"website blocked automated visits ({code})"
     if code == 429:
         return "website limited automated visits (429)"

@@ -135,6 +135,41 @@ async def test_only_refused_contact_page_is_opened_in_browser(web):
     assert FakeBrowser.rendered == ["https://mixed.in/contact"]
 
 
+COOKIE_CHECK = '<script>document.cookie = "humans_21909=1"; document.location.reload(true)</script>'
+
+
+async def test_cookie_check_409_contact_page_is_opened_in_browser(web):
+    """Some Apache hosts answer 409 with a 'set a cookie and reload' script; the homepage was fine."""
+    web.site("https://apache.in", {
+        "/": page('<a href="/contact.php">Contact</a><p>Mobile 98450 43210</p>'),
+        "/contact.php": httpx.Response(409, html=COOKIE_CHECK),
+    })
+    FakeBrowser.pages = {"https://apache.in/contact.php": page("<p>Email sales@apache.in</p>")}
+    r = await scrape("https://apache.in")
+    assert r.method == "http+browser"
+    assert r.emails == ["sales@apache.in"] and r.mobiles == ["+91 98450 43210"]
+    assert FakeBrowser.rendered == ["https://apache.in/contact.php"]
+
+
+async def test_cookie_check_page_with_status_200_also_goes_to_browser(web):
+    web.site("https://apache2.in", {"/": COOKIE_CHECK})
+    FakeBrowser.pages = {"https://apache2.in": page("<p>98450 43210</p>")}
+    r = await scrape("https://apache2.in")
+    assert r.status == "ok" and r.method == "browser" and r.phones == ["+91 98450 43210"]
+
+
+async def test_refused_contact_page_is_opened_in_browser_in_simple_mode_too(web):
+    """Analytics mode no longer changes the check: a homepage with an email and a mobile still
+    gets its refused contact page opened in the browser."""
+    web.site("https://both.in", {
+        "/": page('<a href="/contact.php">Contact</a><p>info@both.in · 98450 43210</p>'),
+        "/contact.php": httpx.Response(409, html=COOKIE_CHECK),
+    })
+    FakeBrowser.pages = {"https://both.in/contact.php": page("<p>sales@both.in</p>")}
+    r = await scrape("https://both.in")
+    assert r.emails == ["info@both.in", "sales@both.in"]
+
+
 async def test_site_fine_over_http_never_opens_browser(web):
     web.site("https://easy.in", {"/": page("<p>98450 43210</p>")})
     r = await scrape("https://easy.in")

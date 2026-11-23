@@ -41,7 +41,7 @@ log = logging.getLogger("contact_scraper.api")
 
 DATA_DIR = Path(os.getenv("DATA_DIR", "data")).resolve()
 JOBS_DIR = DATA_DIR / "jobs"
-MAX_ROWS = int(os.getenv("MAX_ROWS", "5000"))
+MAX_ROWS = int(os.getenv("MAX_ROWS", "20000"))
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 KEEP_JOBS_DAYS = 7
 FEED_PAGE = 200
@@ -70,7 +70,7 @@ class Job:
     filename: str
     total: int
     input_name: str = "input.xlsx"
-    analytics: bool = False  # off: quick check, simple file (only rows with an email or mobile)
+    analytics: bool = False  # off: simple file (only rows with an email or mobile); the check is the same
     region: str = ""
     url_column: int = 0
     status: str = "running"  # running | done | cancelled | error
@@ -267,7 +267,6 @@ async def _finish(job: Job, status: str, sheet: Sheet | None) -> None:
 
 async def _process(job: Job, sheet: Sheet | None = None) -> None:
     settings = Settings.from_env()
-    settings.analytics = job.analytics
     settings.region = job.region or settings.region
     job.started, job.offline = time.time(), False
     try:
@@ -512,7 +511,7 @@ async def create_job(
     JOBS[job.id] = job
     _start(job, sheet)
     log.info("Job %s started: %s (%d websites, region %s, %s)", job.id, job.filename, job.total, region,
-             "analytics" if analytics else "quick")
+             "analytics" if analytics else "simple")
     return job.public(since=0)
 
 

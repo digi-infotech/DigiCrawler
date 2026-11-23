@@ -26,7 +26,7 @@ DigiCrawler takes an **Excel list of websites** and gives you back the same list
 | 3    | Your browser opens **http://localhost:3003**. If it doesn't, type that address into your browser yourself.                                                                                                                                          |
 | 4    | **Drop your Excel file** onto the page (or click the big box to browse).                                                                                                                                                                            |
 | 5    | **Check the preview.** The page shows which column it thinks holds the websites, plus the first few addresses. If it picked the wrong column, click the right one.                                                                                  |
-| 6    | Pick the **country** where most of the businesses are. It's only a fallback: each website's own country is detected automatically where possible (see below). Leave **Analytics mode** off for a quick contact list, or turn it on for every detail (see below). |
+| 6    | Pick the **country** where most of the businesses are. It's only a fallback: each website's own country is detected automatically where possible (see below). Leave **Analytics mode** off for a clean contact list, or turn it on for every detail (see below). |
 | 7    | Click **Start checking**. You'll see a live count of emails and numbers, the websites just checked, and the time left. You can close the tab; reopening the page brings you back to the check. **Download results so far** gives you an Excel file of everything found up to now. Need to stop early? Click **Stop and keep results**. |
 | 8    | On the results screen, **search** or filter the list, **click any email or number to copy it**, or use **Copy emails / Copy mobiles** to copy a whole list. Click **Download Excel** to save the file. If some websites couldn't be opened (or you stopped early), **Check N websites again** retries just those and keeps everything already found. |
 | 9    | When you're finished for the day, **double-click `stop.bat`**.                                                                                                                                                                                      |
@@ -35,7 +35,7 @@ DigiCrawler takes an **Excel list of websites** and gives you back the same list
 
 ### Nothing gets lost
 
-Every website's result is saved on this computer the moment it's found, so a long check (even 5,000 websites) is safe:
+Every website's result is saved on this computer the moment it's found, so a long check (even 20,000 websites) is safe:
 
 - **You refresh or close the page**: open http://localhost:3003 again. It goes straight back to your check.
 - **The internet drops, or the laptop goes to sleep**: the check **pauses** and the page shows **Waiting for internet**. When the connection is back it carries on by itself. Websites aren't marked as failed because of the outage; any website that was being checked at that moment is simply checked again.
@@ -51,7 +51,7 @@ Tip: in Docker Desktop, go to *Settings → General* and turn on **Start Docker 
 - Websites can be written any way you like: `acme.com`, `www.acme.com` or `https://www.acme.com`.
 - Other columns, such as company name or city, are kept unchanged in the result.
 - Empty columns with no name and completely blank rows are removed automatically, so they don't show up in the result. A column you gave a name is kept even when it's empty.
-- The limit is 5,000 rows per file. For more, split the list into several files.
+- The limit is 20,000 rows per file. For more, split the list into several files, or raise `MAX_ROWS` in the `.env` file and restart (`docker compose up -d`). Big files take a long time (roughly 1–2 seconds per website), and at 100,000 rows saving the Excel result takes about a minute and up to ~2 GB of memory.
 
 On the upload page, click **Download a sample file** for a ready-made template (also in `examples/sample.xlsx`).
 
@@ -62,10 +62,10 @@ On the upload page, click **Download a sample file** for a ready-made template (
 
 ### Analytics mode: simple list or every detail
 
-The **Analytics mode** switch is on the screen where you check the file, before you click **Start checking**. It is **off every time** you choose a new file. It decides how the websites are checked and what's on the results screen and in the Excel file.
+The **Analytics mode** switch is on the screen where you check the file, before you click **Start checking**. It is **off every time** you choose a new file. Websites are checked **the same way** either way: the homepage plus its contact, about and services pages (up to 6 per website), so no email, mobile or address is missed because it wasn't on the homepage. The switch only decides what's on the results screen and in the Excel file.
 
-- **Off (the normal setting, quicker):** each website is checked only until a contact turns up. The homepage is read first. If it already shows an email *and* a mobile, nothing else is opened. Otherwise the contact pages are opened, and the about/services pages and the hidden browser are used only while no email or mobile has been found at all. The result is a clean contact list. It only includes businesses where **at least one email or one mobile number** was found. Websites that failed or had nothing are left out. Next to your original columns (for example Business, Website, Type), it adds only `business_name`, `city`, `state`, `pin_code`, `country`, `email_1`, `email_2`, … and `mobile_1`, `mobile_2`, …. Landline numbers aren't included.
-- **On (slower):** every planned page is opened (up to 6 per website). The result has every row of your file, including failed websites, with all the columns below (`website_final`, `address`, landline `phone_…` numbers, `source_pages` and `status`). Use it to see why a website gave nothing, or to double-check a result. The file is named `<your file>_analytics.xlsx`.
+- **Off (the normal setting):** a clean contact list. It only includes businesses where **at least one email or one mobile number** was found. Websites that failed or had nothing are left out. Next to your original columns (for example Business, Website, Type), it adds only `business_name`, `address`, `city`, `state`, `pin_code`, `country`, `email_1`, `email_2`, … and `mobile_1`, `mobile_2`, …. Landline numbers aren't included.
+- **On:** the result has every row of your file, including failed websites, with all the columns below (`website_final`, landline `phone_…` numbers, `source_pages` and `status`). Use it to see why a website gave nothing, or to double-check a result. The file is named `<your file>_analytics.xlsx`.
 
 ### What the result columns mean
 
@@ -102,8 +102,9 @@ With Analytics mode on, the result has your original columns plus these:
 - **"Docker Desktop is not running"**: open Docker Desktop, wait for _Engine running_, then double-click `start.bat` again.
 - **The page doesn't open**: wait 30 seconds and refresh. If it still doesn't load, double-click `start.bat` again.
 - **What does "403" / "Blocked" mean? Is it robots.txt?** No, those are two different things:
-  - `skipped: … (robots.txt)` → the website's robots.txt file **asks** tools not to visit, and we respect that. Nothing was requested.
+  - `skipped: … (robots.txt)` → the website's robots.txt file **asks** tools not to visit. Contact Finder ignores robots.txt by default, so you only see this if `RESPECT_ROBOTS=true` is set in `.env`. Nothing was requested.
   - `error: website blocked automated visits (403)` → we asked for the page and the website's security service (Cloudflare, Akamai…) **refused** because the visit didn't look like a person. When this happens, Contact Finder **automatically opens the site in a real (hidden) Chrome browser**. It keeps cookies between pages, waits for "Checking your browser…" screens to finish, and scrolls down so footers load. Rows rescued this way show a **via browser** tag on the results page.
+  - `error: website blocked automated visits (409)` → the same thing on some small hosting companies: instead of the page they send a tiny "set a cookie and reload" check that only a real browser passes. The real browser is used automatically here too, including when only the contact page sends this check.
   - `error: website blocked automated visits, even in a browser` → the site refused the real browser too. Open it yourself to copy the details.
 - **Some rows say `error`**: the website may be down or the address may be wrong. Check that row's address in your browser, or click **Check N websites again** on the results screen to retry only those.
 - **The page says "Waiting for internet" but my internet works**: your network may block the connection test. Ask the developer to set `ONLINE_CHECK_HOSTS` (see Settings).
@@ -190,7 +191,7 @@ Options:
 | `--max-pages`              | 6                       | Pages opened per site                                                                          |
 | `--browser / --no-browser` | `WITH_BROWSER` (on)     | Automatic headless-browser fallback                                                            |
 | `--ignore-robots`          | off                     | Skip robots.txt checks                                                                         |
-| `--analytics/--simple`     | `--analytics`           | `--simple` = Analytics mode off: the quicker check and the file with only rows with an email or mobile |
+| `--analytics/--simple`     | `--analytics`           | `--simple` = Analytics mode off: the same full check, but the file has only rows with an email or mobile |
 | `-v`                       | off                     | Verbose logs                                                                                   |
 
 ### Run locally without Docker
@@ -215,11 +216,12 @@ The upload page in `web/` expects nginx in front of the API, so use Docker to te
 | `CONCURRENCY`         | `20`    | Sites checked in parallel                                       |
 | `MAX_PAGES`           | `6`     | Pages per site (homepage + contact/about/services)              |
 | `TIMEOUT`             | `15`    | Seconds before a site is treated as unreachable                 |
-| `RESPECT_ROBOTS`      | `true`  | Honour robots.txt                                               |
+| `RESPECT_ROBOTS`      | `false` | Honour robots.txt (off: robots.txt is ignored)                  |
 | `WITH_BROWSER`        | `true`  | Automatic headless-Chrome fallback (see below)                  |
 | `BROWSER_CONCURRENCY` | `3`     | Sites using the browser at the same time (~150–300 MB RAM each) |
 | `ONLINE_CHECK`        | `true`  | Pause while the internet is down instead of marking sites failed |
 | `ONLINE_CHECK_HOSTS`  | `www.google.com:443,one.one.one.one:443,www.microsoft.com:443` | Hosts for the connection test (any one answering = online) |
+| `MAX_ROWS`            | `20000` | Most websites allowed in one uploaded file                      |
 | `PORT`                | `3003`  | Port on your computer                                           |
 
 After changing `.env`, run `docker compose up -d --build`, or double-click `start.bat` again.
@@ -228,9 +230,9 @@ After changing `.env`, run `docker compose up -d --build`, or double-click `star
 
 | Situation                                                                                | What the browser does                                                                |
 | ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
-| Homepage refused (401/403/429/503) or an "Access denied" / "Checking your browser…" page | Opens the whole site (homepage + contact/about/services) in the browser              |
+| Homepage refused (401/403/409/429/503) or an "Access denied" / "Checking your browser…" / cookie-and-reload page | Opens the whole site (homepage + contact/about/services) in the browser |
 | Nothing found over plain HTTP (JavaScript-built site, lazy-loaded footer)                | Looks at the whole site again in the browser, skipping pages already known to be 404 |
-| Contacts found, but some contact pages were refused                                      | Opens only those pages in the browser and merges the results                         |
+| Contacts found, but some contact pages were refused (same signs as above)                | Opens only those pages in the browser and merges the results (both modes)            |
 
 Each site gets one browser context, so cookies (consent, passed bot checks) carry over between its pages. "Checking your browser" screens get up to 15 s to finish on their own. Pages are scrolled to the bottom for lazy-loaded footers, and images, fonts and video are skipped for speed. Time limits are separate: 8× `TIMEOUT` for plain HTTP, and 12× `TIMEOUT` for the browser, counted from when a browser slot is free. Whatever plain HTTP found is kept if the browser fails. In `crawler.py` the result's `method` is `http`, `browser` or `http+browser`.
 
