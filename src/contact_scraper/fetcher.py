@@ -274,8 +274,10 @@ class BrowserSession:
             await self.close()
             return False
 
-        async def skip_heavy(route):  # pictures, videos and fonts never hold contact text
-            if route.request.resource_type in {"image", "media", "font"}:
+        # Pictures, videos, fonts and stylesheets never hold contact text. Skipping stylesheets also
+        # lets scripts run sooner, since browsers make scripts wait for the stylesheets above them.
+        async def skip_heavy(route):
+            if route.request.resource_type in {"image", "media", "font", "stylesheet"}:
                 await route.abort()
             else:
                 await route.continue_()
@@ -294,8 +296,23 @@ class BrowserSession:
         except Exception:
             log.warning("Could not open a browser page for %s", url, exc_info=True)
             return None
+        # The latest main-page answer (after any "set a cookie and reload" check), kept in case
+        # the page is too slow to finish loading: its HTML is often already enough.
+        documents: list = []
+        page.on("response", lambda resp: documents.append(resp)
+                if resp.request.is_navigation_request() and resp.frame == page.main_frame else None)
         try:
-            await page.goto(url, wait_until="domcontentloaded", timeout=self.renderer.settings.timeout * 1000)
+            try:
+                await page.goto(url, wait_until="domcontentloaded", timeout=self.renderer.settings.timeout * 1000)
+            except Exception as exc:
+                received = await _received_html(documents)
+                if received is None:
+                    raise
+                # Slow servers can take longer than the time limit to send every script and
+                # stylesheet; the page itself arrived, so read that rather than give up.
+                log.info("Browser: %s loaded slowly (%s); using the page as received",
+                         url, str(exc).splitlines()[0] if str(exc) else type(exc).__name__)
+                return page.url, received
             await _settle(page)
             html = await page.content()
             # "Checking your browser..." pages usually finish by themselves within seconds.
@@ -307,7 +324,8 @@ class BrowserSession:
             await page.evaluate("window.scrollTo(0, document.body ? document.body.scrollHeight : 0)")
             await _settle(page, 2500)
             return page.url, await page.content()
-        except Exception:
+        except Exception as exc:
+            log.info("Browser could not open %s: %s", url, str(exc).splitlines()[0] if str(exc) else type(exc).__name__)
             return None
         finally:
             await page.close()
@@ -322,6 +340,22 @@ class BrowserSession:
         if self._slot_held:
             self.renderer.slots.release()
             self._slot_held = False
+
+
+async def _received_html(documents: list) -> str | None:
+    """HTML of the newest main-page answer that is a real page (not an error or bot check)."""
+    from .extract import looks_blocked
+
+    for resp in reversed(documents):
+        try:
+            if resp.status >= 400:
+                continue
+            html = await asyncio.wait_for(resp.text(), timeout=5)
+        except Exception:
+            continue
+        if html and not looks_blocked(html):
+            return html
+    return None
 
 
 async def _settle(page, ms: int = 5000) -> None:

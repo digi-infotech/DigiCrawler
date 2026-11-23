@@ -204,3 +204,22 @@ async def test_browser_off_means_no_browser(web):
     web.site("https://guarded.in", {"/": httpx.Response(403)})
     r = (await run(["https://guarded.in"], Settings(region="IN", use_browser=False)))[0]
     assert r.status == "error: website blocked automated visits (403)" and FakeBrowser.rendered == []
+
+
+class _Doc:
+    """A main-page answer as Playwright reports it."""
+    def __init__(self, status, html):
+        self.status, self._html = status, html
+
+    async def text(self):
+        return self._html
+
+
+async def test_slow_page_falls_back_to_the_html_already_received():
+    """A slow server can take longer than the time limit to send every script; the page itself
+    (after the 409 cookie check) has already arrived, so that is used instead of giving up."""
+    real = page("<p>sales@slow.in</p>")
+    assert await fetcher_module._received_html([_Doc(409, COOKIE_CHECK), _Doc(200, real)]) == real
+    assert await fetcher_module._received_html([_Doc(409, COOKIE_CHECK)]) is None      # still the check
+    assert await fetcher_module._received_html([_Doc(200, COOKIE_CHECK)]) is None
+    assert await fetcher_module._received_html([]) is None
